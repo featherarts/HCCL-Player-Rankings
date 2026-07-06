@@ -1,0 +1,44 @@
+HCCL Batting Rankings,,,,,,,,,HCCL Bowling Rankings,,,,,,,,,HCCL All-Rounder Rankings,,,,,,,
+Rank,Movement,Player,Team,Rating,Previous Rating,Rating Change,Status,,Rank,Movement,Player,Team,Rating,Previous Rating,Rating Change,Status,,Rank,Movement,Player,Team,Rating,Previous Rating,Rating Change,Status
+1,—,Hasitha,DRAGONS,882,870,+12,Official,,1,—,Udara,TEARZ,859,864,-5,Official,,1,—,Chathuka,TEARZ,790,791,-1,Official
+2,—,Chathuka,TEARZ,781,781,0,Official,,2,—,Chathuka,TEARZ,799,802,-3,Official,,2,—,Sasi,MATRIX,747,749,-2,Official
+3,—,Sasi,MATRIX,776,776,0,Official,,3,—,Yasitha,TITANS,743,745,-2,Official,,3,—,Yasitha,TITANS,740,741,-1,Official
+4,—,Yasitha,TITANS,737,737,0,Official,,4,—,Sasi,MATRIX,719,722,-3,Official,,4,—,Udara,TEARZ,731,733,-2,Official
+5,—,Binura,GAMERS,732,732,0,Official,,5,—,Wenura,LORDS,706,709,-3,Official,,5,—,Kalana,LORDS,639,640,-1,Official
+6,—,Sameera,GAMERS,659,659,0,Official,,6,—,Kalana,LORDS,665,668,-3,Official,,6,—,Wenura,LORDS,628,630,-2,Official
+7,—,Kanishka,REAPERS,657,657,0,Official,,7,—,Kaushila,REAPERS,654,656,-2,Official,,7,—,Yathish,TITANS,624,625,-1,Official
+8,—,Pabeesha,LORDS,649,649,0,Official,,8,—,Yathish,TITANS,628,631,-3,Official,,8,—,Hasitha,DRAGONS,620,617,+3,Official
+9,—,Kasun,AURA,637,637,0,Official,,9,—,PK,GAMERS,625,627,-2,Official,,9,—,Pasindu,MATRIX,609,610,-1,Official
+10,—,Pasindu,MATRIX,623,623,0,Official,,10,—,Rasindu,GAMERS,617,620,-3,Official,,10,—,Kasun,AURA,598,599,-1,Official
+11,—,Udara,TEARZ,622,622,0,Official,,11,—,Pasindu,MATRIX,596,598,-2,Official,,11,—,Pabeesha,LORDS,596,597,-1,Official
+12,—,Yathish,TITANS,620,620,0,Official,,12,—,Umesh,REAPERS,566,568,-2,Official,,12,—,PK,GAMERS,594,595,-1,Official
+13,—,Kalana,LORDS,613,613,0,Official,,13,—,Sasiru,TITANS,564,567,-3,Official,,13,—,Rasindu,GAMERS,590,590,0,Official
+14,—,Sasiru,TITANS,609,609,0,Official,,14,—,Nehan,AURA,561,564,-3,Official,,14,—,Sasiru,TITANS,586,588,-2,Official
+15,—,Nehan,AURA,581,581,0,Official,,15,—,Kasun,AURA,561,564,-3,Official,,15,—,Sameera,GAMERS,573,575,-2,Official
+16,—,Milindu,TEARZ,570,570,0,Official,,16,—,Pabeesha,LORDS,547,549,-2,Official,,16,—,Nehan,AURA,571,572,-1,Official
+17,—,PK,GAMERS,564,564,0,Official,,17,—,Chamindu,DRAGONS,528,530,-2,Official,,17,↑ 1,Kaushila,REAPERS,567,561,+6,Official
+18,—,Rasindu,GAMERS,564,561,+3,Official,,18,—,Sameera,GAMERS,499,501,-2,Official,,18,↓ 1,Kanishka,REAPERS,566,567,-1,Official
+19,—,Wenura,LORDS,559,559,0,Official,,19,—,Shenal,AURA,490,492,-2,Official,,19,—,Chamindu,DRAGONS,529,530,-1,Official
+20,—,Nisitha,MATRIX,557,557,0,Official,,20,—,Kanishka,REAPERS,487,489,-2,Official,,20,—,Binura,GAMERS,512,513,-1,Official
+21,—,Nima,AURA,557,557,0,Official,,21,—,Sandun,MATRIX,472,473,-1,Official,,21,—,Umesh,REAPERS,491,492,-1,Official
+22,—,Rashen,DRAGONS,541,541,0,Official,,22,—,Thula,DRAGONS,458,459,-1,Official,,22,—,Thula,DRAGONS,484,484,0,Official
+23,—,Sadaru,DRAGONS,539,539,0,Official,,23,—,Nimesh,LORDS,438,439,-1,Official,,23,—,Shenal,AURA,479,480,-1,Official
+24,—,Chamindu,DRAGONS,530,530,0,Official,,24,—,Hasitha,DRAGONS,436,437,-1,Official,,24,—,Nima,AURA,476,478,-2,Official
+25,—,Thula,DRAGONS,511,511,0,Official,,25,—,Razmika,AURA,417,418,-1,Official,,25,—,Milindu,TEARZ,473,473,0,Official
+26,—,Vimukthi,LORDS,495,495,0,Official,,26,—,Nima,AURA,407,410,-3,Official,,26,—,Sandun,MATRIX,469,469,0,Official
+27,—,Isuka,REAPERS,494,494,0,Official,,27,—,Vimukthi,LORDS,396,397,-1,Official,,27,—,Nisitha,MATRIX,455,456,-1,Official
+28,—,Kaushila,REAPERS,491,479,+12,Official,,28,—,Milindu,TEARZ,392,393,-1,Official,,28,↑ 1,Sadaru,DRAGONS,449,449,0,Official
+29,—,Shenal,AURA,468,468,0,Official,,29,—,Sadaru,DRAGONS,373,374,-1,Official,,29,↓ 1,Rashen,DRAGONS,448,449,-1,Official
+30,—,Sandun,MATRIX,466,466,0,Official,,30,↑ 1,Rashen,DRAGONS,372,373,-1,Official,,30,—,Vimukthi,LORDS,443,443,0,Official
+31,—,Wathsunu,TEARZ,461,461,0,Official,,31,↓ 1,Nisitha,MATRIX,371,373,-2,Official,,31,—,Razmika,AURA,409,409,0,Official
+32,—,Shanuka,LORDS,439,439,0,Official,,32,—,Sasindu,REAPERS,368,369,-1,Official,,32,—,Sasindu,REAPERS,400,400,0,Official
+33,—,Sasindu,REAPERS,434,434,0,Official,,33,—,Arqi,TITANS,363,363,0,Provisional,,33,—,Shanuka,LORDS,394,394,0,Official
+34,—,Umesh,REAPERS,426,426,0,Official,,34,—,Binura,GAMERS,359,360,-1,Official,,34,—,Isuka,REAPERS,393,393,0,Official
+35,—,Razmika,AURA,400,400,0,Official,,35,↑ 1,Yasantha,MATRIX,354,354,0,Official,,35,—,Nimesh,LORDS,387,387,0,Official
+36,—,Vihanga,TEARZ,381,381,0,Official,,36,↓ 1,Shanuka,LORDS,353,354,-1,Official,,36,—,Yasantha,MATRIX,329,329,0,Official
+37,—,Nimesh,LORDS,342,342,0,Official,,37,—,Isuka,REAPERS,313,313,0,Official,,37,—,Wathsunu,TEARZ,322,322,0,Provisional
+38,—,Yasantha,MATRIX,306,306,0,Official,,38,—,Loku,REAPERS,301,301,0,Provisional,,38,—,Arqi,TITANS,314,314,0,Provisional
+39,—,Thila,GAMERS,290,290,0,Official,,39,—,Thila,GAMERS,255,256,-1,Official,,39,—,Vihanga,TEARZ,306,306,0,Provisional
+40,—,Arqi,TITANS,272,272,0,Provisional,,40,—,Vihanga,TEARZ,246,246,0,Provisional,,40,—,Loku,REAPERS,284,284,0,Provisional
+41,—,Loku,REAPERS,267,267,0,Provisional,,41,—,Kavindu K,TITANS,232,232,0,Provisional,,41,—,Thila,GAMERS,272,272,0,Official
+42,—,Kavindu K,TITANS,256,256,0,Provisional,,42,—,Wathsunu,TEARZ,225,225,0,Provisional,,42,—,Kavindu K,TITANS,244,244,0,Provisional

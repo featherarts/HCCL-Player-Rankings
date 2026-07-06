@@ -1,0 +1,127 @@
+Team,Category,Team Rank,Overall Rank,Movement,Player,Rating,Previous Rating,Rating Change,Status
+AURA,Batting,1,9,—,Kasun,637,637,0,Official
+AURA,Batting,2,15,—,Nehan,581,581,0,Official
+AURA,Batting,3,21,—,Nima,557,557,0,Official
+AURA,Batting,4,29,—,Shenal,468,468,0,Official
+AURA,Batting,5,35,—,Razmika,400,400,0,Official
+DRAGONS,Batting,1,1,—,Hasitha,882,870,+12,Official
+DRAGONS,Batting,2,22,—,Rashen,541,541,0,Official
+DRAGONS,Batting,3,23,—,Sadaru,539,539,0,Official
+DRAGONS,Batting,4,24,—,Chamindu,530,530,0,Official
+DRAGONS,Batting,5,25,—,Thula,511,511,0,Official
+GAMERS,Batting,1,5,—,Binura,732,732,0,Official
+GAMERS,Batting,2,6,—,Sameera,659,659,0,Official
+GAMERS,Batting,3,17,—,PK,564,564,0,Official
+GAMERS,Batting,4,18,—,Rasindu,564,561,+3,Official
+GAMERS,Batting,5,39,—,Thila,290,290,0,Official
+LORDS,Batting,1,8,—,Pabeesha,649,649,0,Official
+LORDS,Batting,2,13,—,Kalana,613,613,0,Official
+LORDS,Batting,3,19,—,Wenura,559,559,0,Official
+LORDS,Batting,4,26,—,Vimukthi,495,495,0,Official
+LORDS,Batting,5,32,—,Shanuka,439,439,0,Official
+LORDS,Batting,6,37,—,Nimesh,342,342,0,Official
+MATRIX,Batting,1,3,—,Sasi,776,776,0,Official
+MATRIX,Batting,2,10,—,Pasindu,623,623,0,Official
+MATRIX,Batting,3,20,—,Nisitha,557,557,0,Official
+MATRIX,Batting,4,30,—,Sandun,466,466,0,Official
+MATRIX,Batting,5,38,—,Yasantha,306,306,0,Official
+REAPERS,Batting,1,7,—,Kanishka,657,657,0,Official
+REAPERS,Batting,2,27,—,Isuka,494,494,0,Official
+REAPERS,Batting,3,28,—,Kaushila,491,479,+12,Official
+REAPERS,Batting,4,33,—,Sasindu,434,434,0,Official
+REAPERS,Batting,5,34,—,Umesh,426,426,0,Official
+REAPERS,Batting,6,41,—,Loku,267,267,0,Provisional
+TEARZ,Batting,1,2,—,Chathuka,781,781,0,Official
+TEARZ,Batting,2,11,—,Udara,622,622,0,Official
+TEARZ,Batting,3,16,—,Milindu,570,570,0,Official
+TEARZ,Batting,4,31,—,Wathsunu,461,461,0,Official
+TEARZ,Batting,5,36,—,Vihanga,381,381,0,Official
+TITANS,Batting,1,4,—,Yasitha,737,737,0,Official
+TITANS,Batting,2,12,—,Yathish,620,620,0,Official
+TITANS,Batting,3,14,—,Sasiru,609,609,0,Official
+TITANS,Batting,4,40,—,Arqi,272,272,0,Provisional
+TITANS,Batting,5,42,—,Kavindu K,256,256,0,Provisional
+AURA,Bowling,1,14,—,Nehan,561,564,-3,Official
+AURA,Bowling,2,15,—,Kasun,561,564,-3,Official
+AURA,Bowling,3,19,—,Shenal,490,492,-2,Official
+AURA,Bowling,4,25,—,Razmika,417,418,-1,Official
+AURA,Bowling,5,26,—,Nima,407,410,-3,Official
+DRAGONS,Bowling,1,17,—,Chamindu,528,530,-2,Official
+DRAGONS,Bowling,2,22,—,Thula,458,459,-1,Official
+DRAGONS,Bowling,3,24,—,Hasitha,436,437,-1,Official
+DRAGONS,Bowling,4,29,—,Sadaru,373,374,-1,Official
+DRAGONS,Bowling,5,30,↑ 1,Rashen,372,373,-1,Official
+GAMERS,Bowling,1,9,—,PK,625,627,-2,Official
+GAMERS,Bowling,2,10,—,Rasindu,617,620,-3,Official
+GAMERS,Bowling,3,18,—,Sameera,499,501,-2,Official
+GAMERS,Bowling,4,34,—,Binura,359,360,-1,Official
+GAMERS,Bowling,5,39,—,Thila,255,256,-1,Official
+LORDS,Bowling,1,5,—,Wenura,706,709,-3,Official
+LORDS,Bowling,2,6,—,Kalana,665,668,-3,Official
+LORDS,Bowling,3,16,—,Pabeesha,547,549,-2,Official
+LORDS,Bowling,4,23,—,Nimesh,438,439,-1,Official
+LORDS,Bowling,5,27,—,Vimukthi,396,397,-1,Official
+LORDS,Bowling,6,36,↓ 1,Shanuka,353,354,-1,Official
+MATRIX,Bowling,1,4,—,Sasi,719,722,-3,Official
+MATRIX,Bowling,2,11,—,Pasindu,596,598,-2,Official
+MATRIX,Bowling,3,21,—,Sandun,472,473,-1,Official
+MATRIX,Bowling,4,31,↓ 1,Nisitha,371,373,-2,Official
+MATRIX,Bowling,5,35,↑ 1,Yasantha,354,354,0,Official
+REAPERS,Bowling,1,7,—,Kaushila,654,656,-2,Official
+REAPERS,Bowling,2,12,—,Umesh,566,568,-2,Official
+REAPERS,Bowling,3,20,—,Kanishka,487,489,-2,Official
+REAPERS,Bowling,4,32,—,Sasindu,368,369,-1,Official
+REAPERS,Bowling,5,37,—,Isuka,313,313,0,Official
+REAPERS,Bowling,6,38,—,Loku,301,301,0,Provisional
+TEARZ,Bowling,1,1,—,Udara,859,864,-5,Official
+TEARZ,Bowling,2,2,—,Chathuka,799,802,-3,Official
+TEARZ,Bowling,3,28,—,Milindu,392,393,-1,Official
+TEARZ,Bowling,4,40,—,Vihanga,246,246,0,Provisional
+TEARZ,Bowling,5,42,—,Wathsunu,225,225,0,Provisional
+TITANS,Bowling,1,3,—,Yasitha,743,745,-2,Official
+TITANS,Bowling,2,8,—,Yathish,628,631,-3,Official
+TITANS,Bowling,3,13,—,Sasiru,564,567,-3,Official
+TITANS,Bowling,4,33,—,Arqi,363,363,0,Provisional
+TITANS,Bowling,5,41,—,Kavindu K,232,232,0,Provisional
+AURA,All-Rounder,1,10,—,Kasun,598,599,-1,Official
+AURA,All-Rounder,2,16,—,Nehan,571,572,-1,Official
+AURA,All-Rounder,3,23,—,Shenal,479,480,-1,Official
+AURA,All-Rounder,4,24,—,Nima,476,478,-2,Official
+AURA,All-Rounder,5,31,—,Razmika,409,409,0,Official
+DRAGONS,All-Rounder,1,8,—,Hasitha,620,617,+3,Official
+DRAGONS,All-Rounder,2,19,—,Chamindu,529,530,-1,Official
+DRAGONS,All-Rounder,3,22,—,Thula,484,484,0,Official
+DRAGONS,All-Rounder,4,28,↑ 1,Sadaru,449,449,0,Official
+DRAGONS,All-Rounder,5,29,↓ 1,Rashen,448,449,-1,Official
+GAMERS,All-Rounder,1,12,—,PK,594,595,-1,Official
+GAMERS,All-Rounder,2,13,—,Rasindu,590,590,0,Official
+GAMERS,All-Rounder,3,15,—,Sameera,573,575,-2,Official
+GAMERS,All-Rounder,4,20,—,Binura,512,513,-1,Official
+GAMERS,All-Rounder,5,41,—,Thila,272,272,0,Official
+LORDS,All-Rounder,1,5,—,Kalana,639,640,-1,Official
+LORDS,All-Rounder,2,6,—,Wenura,628,630,-2,Official
+LORDS,All-Rounder,3,11,—,Pabeesha,596,597,-1,Official
+LORDS,All-Rounder,4,30,—,Vimukthi,443,443,0,Official
+LORDS,All-Rounder,5,33,—,Shanuka,394,394,0,Official
+LORDS,All-Rounder,6,35,—,Nimesh,387,387,0,Official
+MATRIX,All-Rounder,1,2,—,Sasi,747,749,-2,Official
+MATRIX,All-Rounder,2,9,—,Pasindu,609,610,-1,Official
+MATRIX,All-Rounder,3,26,—,Sandun,469,469,0,Official
+MATRIX,All-Rounder,4,27,—,Nisitha,455,456,-1,Official
+MATRIX,All-Rounder,5,36,—,Yasantha,329,329,0,Official
+REAPERS,All-Rounder,1,17,↑ 1,Kaushila,567,561,+6,Official
+REAPERS,All-Rounder,2,18,↓ 1,Kanishka,566,567,-1,Official
+REAPERS,All-Rounder,3,21,—,Umesh,491,492,-1,Official
+REAPERS,All-Rounder,4,32,—,Sasindu,400,400,0,Official
+REAPERS,All-Rounder,5,34,—,Isuka,393,393,0,Official
+REAPERS,All-Rounder,6,40,—,Loku,284,284,0,Provisional
+TEARZ,All-Rounder,1,1,—,Chathuka,790,791,-1,Official
+TEARZ,All-Rounder,2,4,—,Udara,731,733,-2,Official
+TEARZ,All-Rounder,3,25,—,Milindu,473,473,0,Official
+TEARZ,All-Rounder,4,37,—,Wathsunu,322,322,0,Provisional
+TEARZ,All-Rounder,5,39,—,Vihanga,306,306,0,Provisional
+TITANS,All-Rounder,1,3,—,Yasitha,740,741,-1,Official
+TITANS,All-Rounder,2,7,—,Yathish,624,625,-1,Official
+TITANS,All-Rounder,3,14,—,Sasiru,586,588,-2,Official
+TITANS,All-Rounder,4,38,—,Arqi,314,314,0,Provisional
+TITANS,All-Rounder,5,42,—,Kavindu K,244,244,0,Provisional

@@ -1,0 +1,14 @@
+Category,Report Section,Player,Team,Current Rank,Previous Rank,Movement,Current Rating,Previous Rating,Rating Change,Status
+Batting,Top Rating Gains,Hasitha,DRAGONS,1,1,—,882,870,+12,Official
+Batting,Top Rating Gains,Kaushila,REAPERS,28,28,—,491,479,+12,Official
+Batting,Top Rating Gains,Rasindu,GAMERS,18,18,—,564,561,+3,Official
+Bowling,Top Climbers,Yasantha,MATRIX,35,36,↑ 1,354,354,0,Official
+Bowling,Top Climbers,Rashen,DRAGONS,30,31,↑ 1,372,373,-1,Official
+Bowling,Top Fallers,Nisitha,MATRIX,31,30,↓ 1,371,373,-2,Official
+Bowling,Top Fallers,Shanuka,LORDS,36,35,↓ 1,353,354,-1,Official
+All-Rounder,Top Climbers,Kaushila,REAPERS,17,18,↑ 1,567,561,+6,Official
+All-Rounder,Top Climbers,Sadaru,DRAGONS,28,29,↑ 1,449,449,0,Official
+All-Rounder,Top Fallers,Kanishka,REAPERS,18,17,↓ 1,566,567,-1,Official
+All-Rounder,Top Fallers,Rashen,DRAGONS,29,28,↓ 1,448,449,-1,Official
+All-Rounder,Top Rating Gains,Kaushila,REAPERS,17,18,↑ 1,567,561,+6,Official
+All-Rounder,Top Rating Gains,Hasitha,DRAGONS,8,8,—,620,617,+3,Official
