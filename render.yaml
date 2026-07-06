@@ -1,0 +1,17 @@
+services:
+  - type: worker
+    name: hccl-telegram-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python telegram_bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: ALLOWED_CHAT_IDS
+        sync: false
+      - key: DEFAULT_TOP_LIMIT
+        value: "10"
