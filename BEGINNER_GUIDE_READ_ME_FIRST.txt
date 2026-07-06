@@ -1,42 +1,44 @@
-HCCL PLAYER RANKINGS DASHBOARD v2 - BEGINNER GUIDE
+HCCL RANKINGS DASHBOARD v3 - EASY GUIDE
+========================================
 
-WHAT THIS APP DOES
-------------------
-This app calculates your weekly HCCL player rankings from your HCCL Stats.csv file.
+This version can save your weekly rankings online in Supabase.
 
-New v2 upgrades:
-1. Movement column: up/down/same compared to previous rankings
-2. Previous rating and rating change
-3. Weekly report: top climbers, fallers, rating gains, new entries
-4. Team-wise player rankings
-5. Official dashboard design
+WHAT YOU NEED TO DO FIRST
+-------------------------
+1. Create a Supabase project.
+2. Open Supabase SQL Editor.
+3. Paste and run the file named: supabase_schema.sql
+4. Add your Supabase secrets to Streamlit Cloud.
+5. Reboot/redeploy the Streamlit app.
 
-FIRST TIME ONLY
----------------
-1. Install Python from python.org.
-2. During installation, tick: Add Python to PATH.
-3. Extract this ZIP file.
-4. Double-click START_HCCL_BOT_WINDOWS.bat.
+SECRETS YOU NEED IN STREAMLIT CLOUD
+-----------------------------------
+SUPABASE_URL = "https://YOUR_PROJECT_ID.supabase.co"
+SUPABASE_KEY = "YOUR_SUPABASE_KEY"
+HCCL_ADMIN_PASSWORD = "your-private-password"
 
-WEEKLY WORKFLOW
----------------
-1. Update your HCCL Stats.csv file.
-2. Open this folder.
-3. Double-click START_HCCL_BOT_WINDOWS.bat.
-4. In the left sidebar, upload your latest HCCL Stats.csv.
-5. Upload last week's rankings CSV if you want movement columns.
-   Example previous file: HCCL_Rankings_Updated.csv or old HCCL RANKINGS.csv.
-6. Check the Batting, Bowling, All-Rounder, Weekly Report, and Team Rankings tabs.
-7. Download the new CSV files.
+Do not upload real secrets to GitHub.
 
-IMPORTANT
----------
-The previous rankings CSV is optional.
-Without previous rankings, the app still calculates new rankings, but movement and weekly climber/faller report will be blank.
+HOW TO USE EVERY WEEK
+---------------------
+1. Open the Streamlit app.
+2. Upload latest HCCL Stats.csv.
+3. Choose previous rankings source:
+   - First week: upload old CSV or choose no previous rankings.
+   - After first Supabase save: choose saved Supabase snapshot.
+4. Check Batting, Bowling, All-Rounder, Team Rankings, Weekly Report.
+5. Open Save / Load tab.
+6. Enter week label, for example Week 07.
+7. Enter admin password.
+8. Click Save Current Rankings.
 
-OUTPUT FILES
-------------
-HCCL_Rankings_Updated.csv  = main updated rankings with movement and rating changes
-HCCL_Weekly_Report.csv     = top climbers, fallers, rating gains, new entries
-HCCL_Team_Rankings.csv     = team-wise rankings
-HCCL_Rating_Details.csv    = detailed calculation data for every player
+NEXT TELEGRAM BOT STEP
+----------------------
+The saved Supabase data can be used by Telegram bot commands like:
+/topbat
+/topbowl
+/topall
+/player Hasitha
+/team TeamName
+/movers
+/report

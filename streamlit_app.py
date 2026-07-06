@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import tempfile
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -15,6 +18,13 @@ from hccl_rating_engine import (
     write_side_by_side_rankings,
     write_team_rankings,
     write_weekly_report,
+)
+from supabase_storage import (
+    get_admin_password,
+    list_snapshots,
+    previous_dict_from_snapshot,
+    save_snapshot,
+    supabase_is_configured,
 )
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
@@ -50,6 +60,8 @@ st.markdown(
     .metric-help {font-size: 13px; color: #cfcfcf; margin-top: 4px;}
     .section-title {font-size: 24px; font-weight: 900; margin-top: 12px; margin-bottom: 8px;}
     .small-note {font-size: 14px; opacity: 0.85;}
+    .db-ok {color: #48d17a; font-weight: 800;}
+    .db-miss {color: #ffb86c; font-weight: 800;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -58,27 +70,72 @@ st.markdown(
 st.markdown(
     """
     <div class="hccl-hero">
-        <div class="hccl-pill">OFFICIAL HCCL RANKINGS</div>
+        <div class="hccl-pill">OFFICIAL HCCL RANKINGS • DASHBOARD v3</div>
         <div class="hccl-title">HCCL Player Rankings Dashboard</div>
         <div class="hccl-subtitle">
-            Upload the weekly stats CSV and, optionally, last week's rankings CSV to calculate rankings, movement, team tables, and the weekly report.
+            Upload weekly stats, calculate official rankings, save snapshots to Supabase, and reuse saved rankings as next week's previous rankings.
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
+# -----------------------------
+# Sidebar: files, previous source, DB status
+# -----------------------------
+
 with st.sidebar:
     st.header("Weekly Update")
     uploaded_file = st.file_uploader("1) Upload latest HCCL Stats CSV", type=["csv"])
-    previous_file = st.file_uploader("2) Upload previous rankings CSV for movement", type=["csv"])
-    official_only = st.checkbox("Show official qualified players only", value=False)
+
+    db_ready = supabase_is_configured()
     st.markdown("---")
-    st.caption("Tip: for movement, upload last week's `HCCL_Rankings_Updated.csv` or your old `HCCL RANKINGS.csv`.")
+    st.subheader("Previous Rankings Source")
+    previous_options = ["No previous rankings", "Upload previous CSV"]
+    if db_ready:
+        previous_options.insert(1, "Use saved Supabase snapshot")
+
+    previous_source = st.radio("2) Select previous source", previous_options)
+    previous_file = None
+    selected_snapshot_id = None
+
+    saved_snapshots = []
+    if previous_source == "Upload previous CSV":
+        previous_file = st.file_uploader("Upload previous rankings CSV", type=["csv"])
+    elif previous_source == "Use saved Supabase snapshot":
+        try:
+            saved_snapshots = list_snapshots(limit=30)
+        except Exception as exc:
+            st.error(f"Could not load saved snapshots: {exc}")
+            saved_snapshots = []
+        if saved_snapshots:
+            snapshot_labels = [
+                f"{s.get('week_label')} • {s.get('snapshot_date')} • {str(s.get('created_at', ''))[:19]}"
+                for s in saved_snapshots
+            ]
+            selected_label = st.selectbox("Choose saved previous ranking", snapshot_labels)
+            selected_snapshot_id = saved_snapshots[snapshot_labels.index(selected_label)]["id"]
+        else:
+            st.info("No saved snapshots yet. Calculate and save one first.")
+
+    official_only = st.checkbox("Show official qualified players only", value=False)
+
+    st.markdown("---")
+    st.subheader("Database")
+    if db_ready:
+        st.markdown("<span class='db-ok'>Connected settings found</span>", unsafe_allow_html=True)
+        st.caption("Supabase save/load is enabled.")
+    else:
+        st.markdown("<span class='db-miss'>Not configured</span>", unsafe_allow_html=True)
+        st.caption("Add SUPABASE_URL and SUPABASE_KEY in Streamlit secrets to enable save/load.")
 
 if uploaded_file is None:
     st.info("Upload your latest `HCCL Stats.csv` file from the left sidebar to begin.")
     st.stop()
+
+# -----------------------------
+# Main calculation
+# -----------------------------
 
 with tempfile.TemporaryDirectory() as tmpdir:
     tmpdir_path = Path(tmpdir)
@@ -87,11 +144,23 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     previous = None
     previous_loaded = False
-    if previous_file is not None:
+    previous_label = "None"
+
+    if previous_source == "Upload previous CSV" and previous_file is not None:
         previous_path = tmpdir_path / "Previous Rankings.csv"
         previous_path.write_bytes(previous_file.getvalue())
         previous = parse_previous_rankings(previous_path)
         previous_loaded = True
+        previous_label = previous_file.name
+    elif previous_source == "Use saved Supabase snapshot" and selected_snapshot_id:
+        try:
+            previous = previous_dict_from_snapshot(selected_snapshot_id)
+            previous_loaded = True
+            previous_label = "Saved Supabase snapshot"
+        except Exception as exc:
+            st.error(f"Could not load previous rankings from Supabase: {exc}")
+            previous = None
+            previous_loaded = False
 
     players = read_stats_csv(stats_path)
     ratings, benchmarks = calculate_ratings(players)
@@ -130,12 +199,17 @@ with tempfile.TemporaryDirectory() as tmpdir:
         if top_ar:
             st.metric("All-Rounder #1", top_ar["Player"], f'{top_ar["Rating"]} rating')
 
-    if not previous_loaded:
-        st.warning("Movement, previous rating, and weekly climber/faller report need a previous rankings CSV. Upload it in the sidebar to activate those features.")
+    if previous_loaded:
+        st.success(f"Previous rankings loaded from: {previous_label}")
+    else:
+        st.warning("Movement, previous rating, and weekly climber/faller report need previous rankings. Upload a previous CSV or choose a saved Supabase snapshot.")
 
     def show_ranking_table(rows, key_prefix):
         df = pd.DataFrame(rows)
         display_cols = ["Rank", "Movement", "Player", "Team", "Rating", "Previous Rating", "Rating Change", "Status"]
+        if df.empty:
+            st.info("No rows to show.")
+            return df
         df = df[display_cols]
         st.dataframe(
             df,
@@ -153,7 +227,22 @@ with tempfile.TemporaryDirectory() as tmpdir:
         )
         return df
 
-    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks"])
+    report_rows = weekly_report_rows(ratings, previous, official_only=official_only) if previous else []
+    team_rows = []
+    for kind in ["batting", "bowling", "all_rounder"]:
+        team_rows.extend(team_ranking_dicts(ratings, kind, official_only=official_only, previous=previous))
+    detail_rows = [r.__dict__ for r in ratings]
+
+    tabs = st.tabs([
+        "🏏 Batting",
+        "🎯 Bowling",
+        "👑 All-Rounder",
+        "📈 Weekly Report",
+        "🛡️ Team Rankings",
+        "🔎 Player Details",
+        "⚙️ Benchmarks",
+        "💾 Save / Load",
+    ])
 
     with tabs[0]:
         st.subheader("HCCL Batting Rankings")
@@ -167,21 +256,16 @@ with tempfile.TemporaryDirectory() as tmpdir:
         st.subheader("HCCL All-Rounder Rankings")
         show_ranking_table(ar_rows, "ar_table")
 
-    report_rows = weekly_report_rows(ratings, previous, official_only=official_only) if previous else []
-    team_rows = []
-    for kind in ["batting", "bowling", "all_rounder"]:
-        team_rows.extend(team_ranking_dicts(ratings, kind, official_only=official_only, previous=previous))
-
     with tabs[3]:
         st.subheader("Weekly Ranking Report")
         if not previous:
-            st.info("Upload previous rankings CSV to see top climbers, fallers, rating gains, and new entries.")
+            st.info("Upload previous rankings CSV or choose a saved snapshot to see top climbers, fallers, rating gains, and new entries.")
         else:
             report_df = pd.DataFrame(report_rows)
             section_order = ["Top Climbers", "Top Fallers", "Top Rating Gains", "New Entries"]
             for section in section_order:
                 st.markdown(f"### {section}")
-                section_df = report_df[report_df["Report Section"] == section]
+                section_df = report_df[report_df["Report Section"] == section] if not report_df.empty else pd.DataFrame()
                 if section_df.empty:
                     st.caption("No players in this section.")
                 else:
@@ -195,15 +279,15 @@ with tempfile.TemporaryDirectory() as tmpdir:
         selected_team = st.selectbox("Select team", options=["All Teams"] + teams)
         selected_category = st.selectbox("Select category", options=["All Categories"] + categories)
         filtered = team_df.copy()
-        if selected_team != "All Teams":
+        if not filtered.empty and selected_team != "All Teams":
             filtered = filtered[filtered["Team"] == selected_team]
-        if selected_category != "All Categories":
+        if not filtered.empty and selected_category != "All Categories":
             filtered = filtered[filtered["Category"] == selected_category]
         st.dataframe(filtered, use_container_width=True, hide_index=True)
 
     with tabs[5]:
         st.subheader("Player Rating Details")
-        details_df = pd.DataFrame([r.__dict__ for r in ratings])
+        details_df = pd.DataFrame(detail_rows)
         st.dataframe(details_df, use_container_width=True, hide_index=True)
 
     with tabs[6]:
@@ -211,6 +295,59 @@ with tempfile.TemporaryDirectory() as tmpdir:
         benchmark_df = pd.DataFrame([benchmarks]).T.reset_index()
         benchmark_df.columns = ["Benchmark", "Value"]
         st.dataframe(benchmark_df, use_container_width=True, hide_index=True)
+
+    with tabs[7]:
+        st.subheader("Save Current Rankings to Supabase")
+        if not db_ready:
+            st.error("Supabase is not configured yet. Add SUPABASE_URL and SUPABASE_KEY in Streamlit secrets, then restart/redeploy the app.")
+        else:
+            st.caption("Save one snapshot after you verify the weekly rankings. Next week, use this saved snapshot as the previous rankings source.")
+            week_label = st.text_input("Week label", value=f"Week {date.today().isoformat()}")
+            snapshot_date = st.date_input("Snapshot date", value=date.today())
+            notes = st.text_area("Notes", placeholder="Example: Rankings after Match 48 / Week 7 update")
+
+            configured_password = get_admin_password()
+            password_ok = True
+            entered_password = ""
+            if configured_password:
+                entered_password = st.text_input("Admin password", type="password")
+                password_ok = entered_password == configured_password
+            else:
+                st.warning("No HCCL_ADMIN_PASSWORD is set. Anyone who can access this app can save snapshots.")
+
+            if st.button("💾 Save Current Rankings", type="primary", disabled=bool(configured_password and not password_ok)):
+                try:
+                    snapshot = save_snapshot(
+                        week_label=week_label,
+                        snapshot_date=str(snapshot_date),
+                        official_only=official_only,
+                        notes=notes,
+                        batting_rows=batting_rows,
+                        bowling_rows=bowling_rows,
+                        all_rounder_rows=ar_rows,
+                        weekly_report_rows=report_rows,
+                        team_rows=team_rows,
+                        detail_rows=detail_rows,
+                        benchmarks=benchmarks,
+                    )
+                    st.success(f"Saved ranking snapshot: {snapshot.get('week_label')} ({snapshot.get('id')})")
+                    st.info("Next week, choose 'Use saved Supabase snapshot' in the sidebar and select this week as the previous ranking.")
+                except Exception as exc:
+                    st.error(f"Could not save to Supabase: {exc}")
+
+            st.markdown("### Saved Snapshots")
+            try:
+                snapshots = list_snapshots(limit=20)
+                if snapshots:
+                    st.dataframe(pd.DataFrame(snapshots), use_container_width=True, hide_index=True)
+                else:
+                    st.caption("No snapshots saved yet.")
+            except Exception as exc:
+                st.error(f"Could not load saved snapshots: {exc}")
+
+    # -----------------------------
+    # Downloads
+    # -----------------------------
 
     rankings_output = tmpdir_path / "HCCL_Rankings_Updated.csv"
     details_output = tmpdir_path / "HCCL_Rating_Details.csv"
