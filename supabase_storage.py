@@ -67,27 +67,47 @@ def get_supabase_client():
 
 
 def clean_value(value: Any) -> Any:
-    """Convert pandas/numpy values into JSON-safe values for Supabase."""
+    """Convert pandas/numpy values into JSON-safe values for Supabase.
+
+    Important: Streamlit/Pandas tables often use an empty string ("") for
+    missing Previous Rank / Previous Rating values. Supabase integer/numeric
+    columns cannot accept "". They must receive NULL, which Python sends as
+    None.
+    """
     if value is None:
         return None
+
+    # Empty strings should be saved as SQL NULL, not as "".
+    # This prevents errors such as:
+    # invalid input syntax for type integer: ""
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped == "":
+            return None
+        return stripped
+
     try:
         # Handles pandas NA, numpy nan, normal float nan/inf.
         if value != value:
             return None
     except Exception:
         pass
+
     if isinstance(value, float):
         if math.isnan(value) or math.isinf(value):
             return None
         return value
-    if isinstance(value, (int, str, bool)):
+
+    if isinstance(value, (int, bool)):
         return value
+
     # Convert numpy scalars and other simple objects.
     try:
         item = value.item()
         return clean_value(item)
     except Exception:
         pass
+
     return str(value)
 
 
