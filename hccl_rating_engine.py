@@ -288,6 +288,10 @@ class PlayerRating:
     all_rounder_rating: Optional[float]
     batting_recent_form: float
     bowling_recent_form: float
+    batting_recent_raw: str
+    bowling_recent_raw: str
+    batting_recent_points: str
+    bowling_recent_points: str
     batting_career_score: Optional[float]
     bowling_career_score: Optional[float]
     achievement_score_batting: Optional[float]
@@ -524,8 +528,8 @@ def calculate_ratings(players: List[Dict[str, str]]) -> Tuple[List[PlayerRating]
         runs = to_float(p["RUNS"])
         wickets = to_float(p["WICKETS"])
 
-        bat_recent, _ = parse_batting_recent(p["Bat Recent 5 Matches"])
-        bowl_recent, _ = parse_bowling_recent(p["Bowl Recent 5 Matches"])
+        bat_recent, bat_recent_points = parse_batting_recent(p["Bat Recent 5 Matches"])
+        bowl_recent, bowl_recent_points = parse_bowling_recent(p["Bowl Recent 5 Matches"])
         exp_score = experience_score(innings)
 
         bat_ok = batting_qualified(p)
@@ -578,6 +582,10 @@ def calculate_ratings(players: List[Dict[str, str]]) -> Tuple[List[PlayerRating]
                 all_rounder_rating=all_rounder_rating,
                 batting_recent_form=bat_recent,
                 bowling_recent_form=bowl_recent,
+                batting_recent_raw=str(p.get("Bat Recent 5 Matches", "")),
+                bowling_recent_raw=str(p.get("Bowl Recent 5 Matches", "")),
+                batting_recent_points=", ".join(str(int(x)) for x in bat_recent_points),
+                bowling_recent_points=", ".join(str(int(x)) for x in bowl_recent_points),
                 batting_career_score=batting_career,
                 bowling_career_score=bowling_career,
                 achievement_score_batting=batting_achievement,

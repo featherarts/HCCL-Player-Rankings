@@ -225,3 +225,21 @@ Use it to select any player and recheck the rating calculation line by line:
 - Recent 5 match point breakdown for batting and bowling
 
 This tab uses the same rating engine functions as the dashboard ranking tables, so the rounded final ratings should match the displayed Batting, Bowling and All-Rounder rankings.
+
+## v4.9 fix
+
+- Fixed Recent 5 Matches CSV parsing.
+- The dashboard now preserves quoted multiline Recent 5 cells correctly.
+- Formula Audit now shows all 5 recent matches instead of treating only the first joined line as Match 1.
+- Added fallback support for older CSVs where recent-form entries were accidentally joined together without newlines.
+
+## v5.0 Expose Bot Support
+
+Player detail snapshots now save raw batting and bowling recent-5 data into Supabase:
+
+- `batting_recent_raw`
+- `bowling_recent_raw`
+- `batting_recent_points`
+- `bowling_recent_points`
+
+This allows the Telegram bot `/expose` command to show inning-by-inning recent performances, not only final recent form scores. After updating to this dashboard version, save a fresh Supabase snapshot before using `/expose`.

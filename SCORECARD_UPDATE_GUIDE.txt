@@ -1,0 +1,48 @@
+HCCL Scorecard PDF Update + Auto Add Players Guide
+================================
+
+This feature updates your HCCL Stats CSV from one STUMPS scorecard PDF.
+
+Before using it, add a final column to your stats CSV:
+
+Stumps Name / Stumps Name / Scorecard Username
+
+Put the exact scorecard name for each player, for example:
+- Sasi18
+- Pasindu Dilshan
+- Kalana Thenu
+- Wenura Sandeepa
+
+You can also write multiple aliases separated by commas:
+Kalana, Kalana Thenu
+
+Weekly process:
+1. Upload latest HCCL Stats.csv in the sidebar.
+2. Open Scorecard Update tab.
+3. Upload the new match PDF.
+4. Review parsed batting/bowling tables.
+5. Download updated stats CSV.
+6. Upload downloaded CSV in sidebar.
+7. Check rankings.
+8. Save snapshot to Supabase.
+
+Important notes:
+- The app expects STUMPS scorecard PDF format.
+- If any names are unmatched, fix Stumps Name / Stumps Name / Scorecard Username and try again.
+- The app does not overwrite your original CSV.
+- Keep a backup of each weekly stats CSV.
+
+
+## v4.2 Auto-add players
+
+This version supports the user's new CSV layout with `Stumps Name` after `NAME`.
+
+If a player appears in a STUMPS scorecard PDF but is not found in the CSV by `Stumps Name`, `Scorecard Username`, or `NAME`, the app automatically adds a new player row to the downloaded updated stats CSV. The new row starts with zero career stats and then applies the match stats from the PDF.
+
+Recommended weekly process:
+1. Upload your latest HCCL Stats CSV.
+2. Open the Scorecard Update tab.
+3. Upload the match scorecard PDF.
+4. Review matched players and new players added.
+5. Download the updated HCCL Stats CSV.
+6. Upload the downloaded CSV in the sidebar to generate updated rankings.

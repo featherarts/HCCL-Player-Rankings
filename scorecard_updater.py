@@ -1072,7 +1072,10 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
         if bw.wickets >= 4:
             _set_int(row, idx["4Fers"], to_int(row[idx["4Fers"]]) + 1)
 
-        recent_line = f"{bw.wickets} Wickets, {fmt_number(bw.economy)} Eco, POTM {'YES' if is_potm else 'NO'}"
+        recent_line = (
+            f"{bw.wickets} Wickets, {bw.runs_conceded} Runs Conceded, "
+            f"{fmt_number(bw.economy)} Eco, POTM {'YES' if is_potm else 'NO'}"
+        )
         row[idx["Bowl Recent 5 Matches"]] = _prepend_recent(row[idx["Bowl Recent 5 Matches"]], recent_line)
         _recalculate_bowling(row, idx)
 
