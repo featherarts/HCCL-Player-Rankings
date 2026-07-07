@@ -19,6 +19,8 @@ from hccl_rating_engine import (
     write_team_rankings,
     write_weekly_report,
 )
+from scorecard_updater import update_stats_csv_from_scorecard
+
 from supabase_storage import (
     get_admin_password,
     list_snapshots,
@@ -241,6 +243,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "🛡️ Team Rankings",
         "🔎 Player Details",
         "⚙️ Benchmarks",
+        "🧾 Scorecard Update",
         "💾 Save / Load",
     ])
 
@@ -297,6 +300,70 @@ with tempfile.TemporaryDirectory() as tmpdir:
         st.dataframe(benchmark_df, use_container_width=True, hide_index=True)
 
     with tabs[7]:
+        st.subheader("Update HCCL Stats CSV from Scorecard PDF")
+        st.caption("Upload one STUMPS match scorecard PDF. The app will update career totals and recent 5 form, then give you a new HCCL Stats CSV to download. It will not overwrite your original file.")
+
+        st.markdown("""
+        **Recommended:** add a final column to your stats CSV named `Stumps Name` or `Scorecard Username`.  
+        Put the exact name used in the scorecard PDF there, for example `Kalana Thenu`, `Sasi18`, or `Pasindu Dilshan`.
+        If the column is missing or blank, the app falls back to the `NAME` column.
+        """)
+
+        scorecard_pdf = st.file_uploader("Upload match scorecard PDF", type=["pdf"], key="scorecard_pdf_upload")
+        if scorecard_pdf is None:
+            st.info("Upload a match scorecard PDF here to preview the stats update.")
+        else:
+            try:
+                update_result = update_stats_csv_from_scorecard(uploaded_file.getvalue(), scorecard_pdf.getvalue())
+                summary = update_result["summary"]
+                st.success("Scorecard parsed and stats CSV update prepared. Please review the tables before using the downloaded CSV.")
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.metric("Match ID", summary.get("match_id") or "-")
+                with c2:
+                    st.metric("POTM", summary.get("player_of_match") or "-")
+                with c3:
+                    st.metric("Batting rows updated", summary.get("batting_rows_updated", 0))
+                with c4:
+                    st.metric("Unmatched names", summary.get("unmatched_count", 0))
+
+                st.markdown("### Parsed batting updates")
+                bat_df = pd.DataFrame(update_result["batting_updates"])
+                if bat_df.empty:
+                    st.warning("No batting rows were updated.")
+                else:
+                    st.dataframe(bat_df, use_container_width=True, hide_index=True)
+
+                st.markdown("### Parsed bowling updates")
+                bowl_df = pd.DataFrame(update_result["bowling_updates"])
+                if bowl_df.empty:
+                    st.warning("No bowling rows were updated.")
+                else:
+                    st.dataframe(bowl_df, use_container_width=True, hide_index=True)
+
+                unmatched_df = pd.DataFrame(update_result["unmatched"])
+                if not unmatched_df.empty:
+                    st.markdown("### Names that need manual mapping")
+                    st.error("Some scorecard names did not match the stats CSV. Add/fix `Stumps Name` or `Scorecard Username` for these players, then try again.")
+                    st.dataframe(unmatched_df, use_container_width=True, hide_index=True)
+                else:
+                    st.success("All parsed scorecard names were matched.")
+
+                st.download_button(
+                    "Download updated HCCL Stats CSV",
+                    data=update_result["updated_csv_bytes"],
+                    file_name="HCCL Stats Updated From Scorecard.csv",
+                    mime="text/csv",
+                    type="primary",
+                )
+
+                st.info("After downloading, upload this updated stats CSV in the sidebar to calculate the new rankings, then save the ranking snapshot to Supabase.")
+            except Exception as exc:
+                st.error(f"Could not update stats from scorecard PDF: {exc}")
+                st.caption("This feature currently expects the STUMPS scorecard PDF format with 1st/2nd Innings Scorecard tables.")
+
+    with tabs[8]:
         st.subheader("Save Current Rankings to Supabase")
         if not db_ready:
             st.error("Supabase is not configured yet. Add SUPABASE_URL and SUPABASE_KEY in Streamlit secrets, then restart/redeploy the app.")

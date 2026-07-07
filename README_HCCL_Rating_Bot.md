@@ -105,3 +105,39 @@ Useful future commands:
 - `/fallers`
 - `/report`
 - `/benchmarks`
+
+## v3.1 Supabase save fix
+
+This version fixes the Supabase save error:
+
+```text
+invalid input syntax for type integer: ""
+```
+
+The issue happened when a player had no previous rank/rating yet. The app used a blank value, but Supabase integer/numeric columns require `NULL`. v3.1 converts blank values to `NULL` before saving.
+
+If a failed save already created an empty snapshot, you can delete it from the `hccl_snapshots` table in Supabase. Deleting the snapshot also deletes linked rows because the schema uses cascade delete.
+
+
+## v4 Scorecard PDF Update Feature
+
+Dashboard v4 adds a **Scorecard Update** tab.
+
+Workflow:
+
+1. Upload the latest `HCCL Stats.csv` in the sidebar.
+2. Open the `🧾 Scorecard Update` tab.
+3. Upload one STUMPS match scorecard PDF.
+4. Review the parsed batting and bowling updates.
+5. If any scorecard names are unmatched, add/fix the `Stumps Name` or `Scorecard Username` column in your stats CSV and try again.
+6. Download `HCCL Stats Updated From Scorecard.csv`.
+7. Upload that downloaded CSV back in the sidebar to calculate new rankings.
+8. Save the new ranking snapshot to Supabase.
+
+Recommended extra columns in the stats CSV:
+
+- `Stumps Name` or `Scorecard Username` — exact name used in the scorecard PDF. You can add multiple aliases separated by commas.
+- `Bat Dismissals` — helper column used to keep batting average accurate.
+- `Bowl Runs Conceded` — helper column used to keep bowling average/economy accurate.
+
+The rating engine ignores these helper columns, but the scorecard updater uses them for cleaner weekly updates.

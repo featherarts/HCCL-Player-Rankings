@@ -29,9 +29,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
-# Column map based on the uploaded HCCL Stats.csv layout.
-# The original CSV has duplicate names: AVG and Recent 5 Matches.
-# This engine reads the columns by position so calculation remains reliable.
+# Canonical internal column map. The reader supports both the old HCCL Stats.csv layout
+# and the new layout with a Stumps Name column inserted after NAME.
 EXPECTED_COLUMNS = [
     "ID", "NAME", "TEAM", "Innings", "RUNS", "Balls Faced", "Bat AVG", "SR",
     "30s", "50s", "0s", "POTMs", "RAP", "Bat Recent 5 Matches",
@@ -278,20 +277,106 @@ class PreviousEntry:
 # CSV readers
 # -----------------------------
 
+def _decode_csv_bytes(data: bytes) -> str:
+    last_error: Optional[Exception] = None
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    raise ValueError(f"Could not decode stats CSV. Last error: {last_error}")
+
+
+def _header_key(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "").replace("\ufeff", "").strip().lower())
+
+
+def _find_header(header: List[str], aliases: List[str]) -> Optional[int]:
+    wanted = {_header_key(a) for a in aliases}
+    for i, h in enumerate(header):
+        if _header_key(h) in wanted:
+            return i
+    return None
+
+
+def _find_all_headers(header: List[str], aliases: List[str]) -> List[int]:
+    wanted = {_header_key(a) for a in aliases}
+    return [i for i, h in enumerate(header) if _header_key(h) in wanted]
+
+
+def _detect_stats_columns(header: List[str]) -> Dict[str, Optional[int]]:
+    idx: Dict[str, Optional[int]] = {
+        "ID": _find_header(header, ["ID"]),
+        "NAME": _find_header(header, ["NAME", "Player", "Player Name"]),
+        "TEAM": _find_header(header, ["TEAM", "Team"]),
+        "Innings": _find_header(header, ["Innings", "Inns"]),
+        "RUNS": _find_header(header, ["RUNS", "Runs"]),
+        "Balls Faced": _find_header(header, ["Balls Faced", "BF", "Balls"]),
+        "SR": _find_header(header, ["SR", "Strike Rate"]),
+        "30s": _find_header(header, ["30s", "Thirties"]),
+        "50s": _find_header(header, ["50s", "Fifties"]),
+        "0s": _find_header(header, ["0s", "Ducks"]),
+        "POTMs": _find_header(header, ["POTMs", "POTM"]),
+        "RAP": _find_header(header, ["RAP"]),
+        "WICKETS": _find_header(header, ["WICKETS", "Wickets"]),
+        "Balls Bowled": _find_header(header, ["Balls Bowled", "BB"]),
+        "ECO": _find_header(header, ["ECO", "Economy"]),
+        "3Fers": _find_header(header, ["3Fers", "3-Fers", "3fers"]),
+        "4Fers": _find_header(header, ["4Fers", "4-Fers", "4fers"]),
+        "BSR": _find_header(header, ["BSR", "Bowling Strike Rate"]),
+        "BAP": _find_header(header, ["BAP"]),
+        "Blank": _find_header(header, [""]),
+    }
+
+    avg_cols = _find_all_headers(header, ["AVG", "Average"])
+    idx["Bat AVG"] = _find_header(header, ["Bat AVG", "Batting AVG", "Batting Average"])
+    idx["Bowl AVG"] = _find_header(header, ["Bowl AVG", "Bowling AVG", "Bowling Average"])
+    if idx["Bat AVG"] is None and avg_cols:
+        idx["Bat AVG"] = avg_cols[0]
+    if idx["Bowl AVG"] is None:
+        if len(avg_cols) >= 2:
+            idx["Bowl AVG"] = avg_cols[1]
+        elif avg_cols:
+            idx["Bowl AVG"] = avg_cols[-1]
+
+    recent_cols = _find_all_headers(header, ["Recent 5 Matches", "Recent Five Matches"])
+    idx["Bat Recent 5 Matches"] = _find_header(header, ["Bat Recent 5 Matches", "Batting Recent 5 Matches"])
+    idx["Bowl Recent 5 Matches"] = _find_header(header, ["Bowl Recent 5 Matches", "Bowling Recent 5 Matches"])
+    if idx["Bat Recent 5 Matches"] is None and recent_cols:
+        idx["Bat Recent 5 Matches"] = recent_cols[0]
+    if idx["Bowl Recent 5 Matches"] is None:
+        if len(recent_cols) >= 2:
+            idx["Bowl Recent 5 Matches"] = recent_cols[1]
+        elif recent_cols:
+            idx["Bowl Recent 5 Matches"] = recent_cols[-1]
+
+    return idx
+
+
 def read_stats_csv(csv_path: str | Path) -> List[Dict[str, str]]:
     path = Path(csv_path)
-    with path.open(newline="", encoding="utf-8-sig") as f:
-        rows = list(csv.reader(f))
+    text = _decode_csv_bytes(path.read_bytes())
+    rows = list(csv.reader(text.splitlines()))
 
     if not rows:
         raise ValueError("The stats CSV is empty.")
+
+    header = rows[0]
+    col_idx = _detect_stats_columns(header)
+
+    missing = [col for col in EXPECTED_COLUMNS if col != "Blank" and col_idx.get(col) is None]
+    if missing:
+        raise ValueError("Missing required HCCL stats columns: " + ", ".join(missing))
 
     players: List[Dict[str, str]] = []
     for row in rows[1:]:
         if not any(str(cell).strip() for cell in row):
             continue
-        padded = row + [""] * (len(EXPECTED_COLUMNS) - len(row))
-        players.append(dict(zip(EXPECTED_COLUMNS, padded[: len(EXPECTED_COLUMNS)])))
+        player: Dict[str, str] = {}
+        for col in EXPECTED_COLUMNS:
+            pos = col_idx.get(col)
+            player[col] = row[pos] if pos is not None and pos < len(row) else ""
+        players.append(player)
 
     return players
 
