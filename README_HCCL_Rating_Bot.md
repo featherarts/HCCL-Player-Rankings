@@ -186,3 +186,27 @@ For each player found in the uploaded scorecard:
 - If a scorecard player is not already in the CSV, the app adds him as a new row.
 
 Example: if Yasitha has 74 innings, 1138 runs, 458 balls, 16.5 average and 248.5 SR, then a scorecard innings of 10 off 5 while out becomes 75 innings, 1148 runs, 463 balls. Dismissals are estimated as round(1138 / 16.5) = 69, then +1 because he was out, so new average is 1148 / 70 = 16.4 and new SR is 1148 / 463 × 100 = 247.9.
+
+## v4.7 Fix - STUMPS split-cell PDF parser
+
+This version fixes STUMPS PDFs where PyMuPDF extracts table cells one by one instead of one full row per line. Example fixed structure:
+
+```text
+Yasitha (C)
+b Kasun
+12
+3
+0
+2
+400.0
+```
+
+The updater now reads these split-cell batting and bowling rows, updates existing players, recalculates batting average from estimated dismissals, recalculates bowling average from estimated runs conceded, and only adds genuinely missing players.
+
+Tested with Match ID `wekv4064`:
+
+- Batting rows found: 9
+- Bowling rows found: 6
+- Existing players updated: 10
+- New players added: 1 (`Navindu Pamod`)
+

@@ -223,14 +223,135 @@ def _is_bowler_header(line: str) -> bool:
     return bool(re.match(r"^Bowler(?:\s+O\s+M\s+R\s+W\s+Eco.*)?$", line.strip(), flags=re.I) or re.match(r"^O\s+M\s+R\s+W\s+Eco", line.strip(), flags=re.I))
 
 
+def _is_number_line(value: str) -> bool:
+    return bool(re.fullmatch(r"\d+(?:\.\d+)?", str(value or "").strip()))
+
+
+def _is_section_stop(line: str) -> bool:
+    low = str(line or "").strip().lower()
+    return (
+        not low
+        or low.startswith("download ")
+        or low == "match report"
+        or low == "over comparison"
+        or bool(re.match(r"^(1st|2nd) innings scorecard$", low, flags=re.I))
+    )
+
+
+def _parse_batter_vertical(lines: List[str], i: int, team: str) -> Tuple[Optional[BatterInnings], int]:
+    """Parse STUMPS text where PyMuPDF extracts each table cell as its own line.
+
+    Example extraction:
+        Yasitha (C)
+        b Kasun
+        12
+        3
+        0
+        2
+        400.0
+    """
+    if i >= len(lines):
+        return None, i
+    name_line = lines[i].strip()
+    low = name_line.lower()
+    if low in {"extras", "total", "fall of wickets", "bowler"} or _is_section_stop(name_line):
+        return None, i
+    if _is_number_line(name_line):
+        return None, i + 1
+
+    j = i + 1
+    dismissal = ""
+    if j < len(lines) and not _is_number_line(lines[j]) and lines[j].strip().lower() not in {"extras", "total", "fall of wickets", "bowler"}:
+        dismissal = lines[j].strip()
+        j += 1
+
+    if j + 4 >= len(lines):
+        return None, i + 1
+    nums = lines[j:j + 5]
+    if not all(_is_number_line(x) for x in nums):
+        return None, i + 1
+
+    runs, balls, fours, sixes = [int(float(x)) for x in nums[:4]]
+    sr = float(nums[4])
+    return BatterInnings(
+        team=team,
+        scorecard_name=_clean_name(name_line),
+        runs=runs,
+        balls=balls,
+        fours=fours,
+        sixes=sixes,
+        strike_rate=sr,
+        not_out=("not out" in dismissal.lower()),
+        dismissal=dismissal,
+    ), j + 5
+
+
+def _parse_bowler_vertical(lines: List[str], i: int, batting_team: str) -> Tuple[Optional[BowlerFigures], int]:
+    """Parse STUMPS bowling figures where each table cell is on its own line."""
+    if i >= len(lines):
+        return None, i
+    name = lines[i].strip()
+    low = name.lower()
+    if low in {"extras", "total", "fall of wickets", "bowler"} or _is_section_stop(name):
+        return None, i
+    if _is_number_line(name):
+        return None, i + 1
+    if i + 10 >= len(lines):
+        return None, i + 1
+
+    values = lines[i + 1:i + 11]
+    # O, M, R, W, Eco, 0s, 4s, 6s, Wd, NB
+    if not (_is_number_line(values[0]) and all(_is_number_line(x) for x in values[1:])):
+        return None, i + 1
+
+    return BowlerFigures(
+        bowling_to_team=batting_team,
+        scorecard_name=_clean_name(name),
+        overs=values[0],
+        balls=overs_to_balls(values[0]),
+        maidens=int(float(values[1])),
+        runs_conceded=int(float(values[2])),
+        wickets=int(float(values[3])),
+        economy=float(values[4]),
+    ), i + 11
+
+
+def _skip_batting_header_tokens(lines: List[str], i: int) -> int:
+    # Handles both one-line and split headers: R / B / 4s / 6s / SR.
+    expected = ["r", "b", "4s", "6s", "sr"]
+    j = i
+    for token in expected:
+        if j < len(lines) and lines[j].strip().lower() == token:
+            j += 1
+        else:
+            return i
+    return j
+
+
+def _skip_bowler_header_tokens(lines: List[str], i: int) -> int:
+    # Handles split header: Bowler / O / M / R / W / Eco / 0s / 4s / 6s / Wd / NB.
+    if i < len(lines) and lines[i].strip().lower() == "bowler":
+        i += 1
+    expected = ["o", "m", "r", "w", "eco", "0s", "4s", "6s", "wd", "nb"]
+    j = i
+    for token in expected:
+        if j < len(lines) and lines[j].strip().lower() == token:
+            j += 1
+        else:
+            return i
+    return j
+
+
 def parse_scorecard_text(text: str) -> MatchScorecard:
     """Parse a STUMPS PDF text export into batting and bowling rows.
 
-    This parser is intentionally forgiving because the same STUMPS scorecard can
-    be extracted slightly differently by PyMuPDF/Streamlit depending on PDF
-    layout. It supports both a one-line team header like
-    `SUPER FIRE DRAGONS R B 4s 6s SR` and a split header where the team name and
-    `R B 4s 6s SR` appear on separate lines.
+    STUMPS PDFs can be extracted in two different ways:
+    - table rows as a single line, e.g. `Yasitha b Kasun 12 3 0 2 400.0`
+    - table cells split line-by-line, e.g. `Yasitha`, `b Kasun`, `12`, `3`, ...
+
+    This parser supports both formats. The second format is the one used by the
+    Match 44 PDF the user uploaded, where previous versions found only POTM and
+    missed the batting/bowling scorecard rows.
     """
     lines = [re.sub(r"\s+", " ", ln).strip() for ln in str(text).splitlines()]
     lines = [ln for ln in lines if ln]
@@ -249,10 +370,11 @@ def parse_scorecard_text(text: str) -> MatchScorecard:
         if i >= len(lines):
             break
 
-        # Find batting team/header.
+        # Find batting team and batting header. In split extraction the team is
+        # usually one line, followed by R/B/4s/6s/SR as separate lines.
         batting_team = ""
         search_start = i
-        while i < len(lines) and i < search_start + 8:
+        while i < len(lines) and i < search_start + 12:
             line = lines[i]
             if _is_batting_header(line):
                 batting_team = _extract_team_from_batting_header(line)
@@ -260,7 +382,10 @@ def parse_scorecard_text(text: str) -> MatchScorecard:
                     batting_team = lines[i - 1].strip()
                 i += 1
                 break
-            # Most STUMPS PDFs put the team name directly before the column header.
+            if i + 5 < len(lines) and _skip_batting_header_tokens(lines, i + 1) > i + 1:
+                batting_team = line.strip()
+                i = _skip_batting_header_tokens(lines, i + 1)
+                break
             if i + 1 < len(lines) and _is_batting_header(lines[i + 1]):
                 batting_team = line.strip()
                 i += 2
@@ -275,33 +400,62 @@ def parse_scorecard_text(text: str) -> MatchScorecard:
         # Batting rows.
         while i < len(lines):
             low = lines[i].lower()
-            if low.startswith("extras") or low.startswith("total") or low.startswith("fall of wickets") or _is_bowler_header(lines[i]):
+            if low.startswith("extras") or low.startswith("total") or low.startswith("fall of wickets") or low == "bowler" or _is_bowler_header(lines[i]):
                 break
+            if re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
+                break
+
             row = _parse_batter_line(lines[i], batting_team)
             if row:
                 batting.append(row)
-            i += 1
+                i += 1
+                continue
 
-        # Move to the bowling header for this innings.
-        while i < len(lines) and not _is_bowler_header(lines[i]):
+            row, next_i = _parse_batter_vertical(lines, i, batting_team)
+            if row:
+                batting.append(row)
+                i = next_i
+            else:
+                i = max(next_i, i + 1)
+
+        # Move to bowling header for this innings.
+        while i < len(lines):
+            if lines[i].strip().lower() == "bowler" or _is_bowler_header(lines[i]):
+                break
             if re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
                 break
             i += 1
 
-        if i < len(lines) and _is_bowler_header(lines[i]):
-            # Some extracted PDFs split the bowler header into two lines. Skip both
-            # the `Bowler` line and an optional `O M R W Eco...` line.
-            i += 1
-            if i < len(lines) and re.match(r"^O\s+M\s+R\s+W\s+Eco", lines[i], flags=re.I):
+        if i < len(lines) and (lines[i].strip().lower() == "bowler" or _is_bowler_header(lines[i])):
+            if _is_bowler_header(lines[i]) and " " in lines[i].strip():
                 i += 1
-            while i < len(lines) and not re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
-                low = lines[i].lower()
-                if low.startswith("download ") or low == "over comparison" or low == "match report":
+                if i < len(lines) and re.match(r"^O\s+M\s+R\s+W\s+Eco", lines[i], flags=re.I):
+                    i += 1
+            else:
+                i = _skip_bowler_header_tokens(lines, i)
+
+            while i < len(lines):
+                if re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
                     break
+                if _is_section_stop(lines[i]):
+                    break
+                low = lines[i].lower()
+                if low.startswith("extras") or low.startswith("total") or low.startswith("fall of wickets"):
+                    i += 1
+                    continue
+
                 row = _parse_bowler_line(lines[i], batting_team)
                 if row:
                     bowling.append(row)
-                i += 1
+                    i += 1
+                    continue
+
+                row, next_i = _parse_bowler_vertical(lines, i, batting_team)
+                if row:
+                    bowling.append(row)
+                    i = next_i
+                else:
+                    i = max(next_i, i + 1)
 
     return MatchScorecard(
         match_id=_extract_match_id(lines),
@@ -310,7 +464,6 @@ def parse_scorecard_text(text: str) -> MatchScorecard:
         batting=batting,
         bowling=bowling,
     )
-
 
 def parse_scorecard_pdf_bytes(pdf_bytes: bytes) -> MatchScorecard:
     text = extract_pdf_text(pdf_bytes)
@@ -651,6 +804,36 @@ def _infer_bowling_team(batting_team: str, teams: List[str]) -> str:
     return ""
 
 
+def _canonical_team_from_csv(scorecard_team: str, rows: List[List[str]], idx: Dict[str, int]) -> str:
+    """Convert full STUMPS team names to the team code used in HCCL Stats.csv.
+
+    Example: `AURA DYNASTY` becomes `AURA`, `WIZARD TITANS` becomes `TITANS`
+    when those team values already exist in the uploaded stats CSV. If no safe
+    match exists, keep the original scorecard team.
+    """
+    clean_team = _clean_name(scorecard_team)
+    team_key = normalize_name(clean_team)
+    if not team_key or "TEAM" not in idx:
+        return clean_team
+
+    existing = []
+    for row in rows:
+        if idx["TEAM"] < len(row):
+            team = _clean_name(row[idx["TEAM"]])
+            if team and team not in existing:
+                existing.append(team)
+
+    matches = []
+    for team in existing:
+        key = normalize_name(team)
+        if key and (key in team_key or team_key in key):
+            matches.append(team)
+
+    if len(matches) == 1:
+        return matches[0]
+    return clean_team
+
+
 def _set_default_new_player_values(row: List[str], idx: Dict[str, int]) -> None:
     # Keep text fields blank unless known. Numeric stats should start from zero.
     numeric_cols = [
@@ -804,7 +987,10 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
             return row
 
         # New scorecard player: automatically add a row to the stats CSV.
-        row, row_idx = _create_new_player_row(header, rows, idx, scorecard_name, team)
+        # Use the same team code as the stats CSV where possible, e.g.
+        # AURA DYNASTY -> AURA, WIZARD TITANS -> TITANS.
+        canonical_team = _canonical_team_from_csv(team, rows, idx)
+        row, row_idx = _create_new_player_row(header, rows, idx, scorecard_name, canonical_team)
         player_index[key] = row_idx
         player_index[normalize_name(row[idx["NAME"]])] = row_idx
         if USERNAME_COL in idx:
