@@ -564,6 +564,59 @@ def _match_players(match: MatchScorecard) -> List[str]:
     return names
 
 
+
+
+def _snapshot_player_stats(rows: List[List[str]], idx: Dict[str, int]) -> Dict[str, Dict[str, str]]:
+    """Take a before/after snapshot of the important visible stats columns."""
+    fields = [
+        "Innings", "RUNS", "Balls Faced", "Bat AVG", "SR", "30s", "50s", "0s",
+        "POTMs", "RAP", "Bat Recent 5 Matches", "WICKETS", "Balls Bowled", "Bowl AVG",
+        "ECO", "3Fers", "4Fers", "BSR", "BAP", "Bowl Recent 5 Matches",
+    ]
+    snapshot: Dict[str, Dict[str, str]] = {}
+    for row in rows:
+        player_id = str(row[idx["ID"]] if idx["ID"] < len(row) else "").strip()
+        if not player_id:
+            player_id = normalize_name(row[idx["NAME"]] if idx["NAME"] < len(row) else "")
+        if not player_id:
+            continue
+        snapshot[player_id] = {
+            "ID": str(row[idx["ID"]] if idx["ID"] < len(row) else ""),
+            "NAME": str(row[idx["NAME"]] if idx["NAME"] < len(row) else ""),
+            "TEAM": str(row[idx["TEAM"]] if idx["TEAM"] < len(row) else ""),
+        }
+        for field in fields:
+            if field in idx and idx[field] < len(row):
+                snapshot[player_id][field] = str(row[idx[field]])
+    return snapshot
+
+
+def _diff_player_stats(before: Dict[str, Dict[str, str]], after: Dict[str, Dict[str, str]]) -> List[Dict[str, str]]:
+    """Return one row per player whose important stats changed."""
+    changes: List[Dict[str, str]] = []
+    ignored = {"ID", "NAME", "TEAM"}
+    for player_id, after_row in after.items():
+        before_row = before.get(player_id, {})
+        changed_fields = []
+        for field, new_value in after_row.items():
+            if field in ignored:
+                continue
+            old_value = before_row.get(field, "")
+            if str(old_value) != str(new_value):
+                # Keep the preview readable by shortening long recent-form fields.
+                if "Recent 5" in field:
+                    changed_fields.append(f"{field}: updated")
+                else:
+                    changed_fields.append(f"{field}: {old_value or 'blank'} → {new_value or 'blank'}")
+        if changed_fields or player_id not in before:
+            changes.append({
+                "ID": after_row.get("ID", ""),
+                "Player": after_row.get("NAME", ""),
+                "Team": after_row.get("TEAM", ""),
+                "Change Summary": "; ".join(changed_fields) if changed_fields else "New player row added",
+            })
+    return changes
+
 def update_stats_csv_from_scorecard(
     stats_csv_bytes: bytes,
     scorecard_pdf_bytes: bytes,
@@ -578,6 +631,8 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
 
     for row in rows:
         _init_helper_values(row, idx)
+
+    before_snapshot = _snapshot_player_stats(rows, idx)
 
     player_index = _build_player_index(rows, idx)
     potm_key = normalize_name(match.player_of_match)
@@ -719,9 +774,13 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
             _recalculate_batting(potm_row, idx)
             _recalculate_bowling(potm_row, idx)
 
+    after_snapshot = _snapshot_player_stats(rows, idx)
+    changed_players = _diff_player_stats(before_snapshot, after_snapshot)
+
     updated_csv = _csv_bytes(header, rows)
     return {
         "updated_csv_bytes": updated_csv,
+        "changed_players": changed_players,
         "match": asdict(match),
         "batting_updates": batting_updates,
         "bowling_updates": bowling_updates,
@@ -738,5 +797,6 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
             "bowling_rows_updated": len(bowling_updates),
             "unmatched_count": len(unmatched),
             "new_players_added": len(new_players),
+            "changed_players_count": len(changed_players),
         },
     }

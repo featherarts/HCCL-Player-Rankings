@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 from datetime import date
+import hashlib
 from pathlib import Path
 
 import pandas as pd
@@ -72,10 +73,10 @@ st.markdown(
 st.markdown(
     """
     <div class="hccl-hero">
-        <div class="hccl-pill">OFFICIAL HCCL RANKINGS • DASHBOARD v3</div>
+        <div class="hccl-pill">OFFICIAL HCCL RANKINGS • DASHBOARD v4.4</div>
         <div class="hccl-title">HCCL Player Rankings Dashboard</div>
         <div class="hccl-subtitle">
-            Upload weekly stats, calculate official rankings, save snapshots to Supabase, and reuse saved rankings as next week's previous rankings.
+            Upload weekly stats, update stats from scorecard PDFs, calculate official rankings, save snapshots to Supabase, and reuse saved rankings as next week's previous rankings.
         </div>
     </div>
     """,
@@ -89,6 +90,20 @@ st.markdown(
 with st.sidebar:
     st.header("Weekly Update")
     uploaded_file = st.file_uploader("1) Upload latest HCCL Stats CSV", type=["csv"])
+
+    if uploaded_file is not None:
+        upload_signature = f"{uploaded_file.name}:{uploaded_file.size}"
+        if st.session_state.get("uploaded_stats_signature") != upload_signature:
+            st.session_state["uploaded_stats_signature"] = upload_signature
+            st.session_state["active_stats_csv_bytes"] = uploaded_file.getvalue()
+            st.session_state["active_stats_source"] = uploaded_file.name
+
+    if st.session_state.get("active_stats_source"):
+        st.caption(f"Active stats source: {st.session_state['active_stats_source']}")
+        if st.button("Reset to uploaded CSV") and uploaded_file is not None:
+            st.session_state["active_stats_csv_bytes"] = uploaded_file.getvalue()
+            st.session_state["active_stats_source"] = uploaded_file.name
+            st.rerun()
 
     db_ready = supabase_is_configured()
     st.markdown("---")
@@ -131,9 +146,15 @@ with st.sidebar:
         st.markdown("<span class='db-miss'>Not configured</span>", unsafe_allow_html=True)
         st.caption("Add SUPABASE_URL and SUPABASE_KEY in Streamlit secrets to enable save/load.")
 
-if uploaded_file is None:
+if uploaded_file is None and "active_stats_csv_bytes" not in st.session_state:
     st.info("Upload your latest `HCCL Stats.csv` file from the left sidebar to begin.")
     st.stop()
+
+active_stats_csv_bytes = st.session_state.get("active_stats_csv_bytes")
+if active_stats_csv_bytes is None and uploaded_file is not None:
+    active_stats_csv_bytes = uploaded_file.getvalue()
+    st.session_state["active_stats_csv_bytes"] = active_stats_csv_bytes
+    st.session_state["active_stats_source"] = uploaded_file.name
 
 # -----------------------------
 # Main calculation
@@ -142,7 +163,7 @@ if uploaded_file is None:
 with tempfile.TemporaryDirectory() as tmpdir:
     tmpdir_path = Path(tmpdir)
     stats_path = tmpdir_path / "HCCL Stats.csv"
-    stats_path.write_bytes(uploaded_file.getvalue())
+    stats_path.write_bytes(active_stats_csv_bytes)
 
     previous = None
     previous_loaded = False
@@ -314,7 +335,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
             st.info("Upload a match scorecard PDF here to preview the stats update.")
         else:
             try:
-                update_result = update_stats_csv_from_scorecard(uploaded_file.getvalue(), scorecard_pdf.getvalue())
+                update_result = update_stats_csv_from_scorecard(active_stats_csv_bytes, scorecard_pdf.getvalue())
                 summary = update_result["summary"]
                 st.success("Scorecard parsed and stats CSV update prepared. Please review the tables before using the downloaded CSV.")
 
@@ -360,15 +381,37 @@ with tempfile.TemporaryDirectory() as tmpdir:
                 else:
                     st.success("All parsed scorecard names were either matched or added as new players.")
 
+                changed_players_df = pd.DataFrame(update_result.get("changed_players", []))
+                st.markdown("### ✅ Stats changed in downloaded CSV")
+                if changed_players_df.empty:
+                    st.error(
+                        "No player stat values changed. This means the PDF was not parsed into usable scorecard rows, "
+                        "or this exact scorecard has already been applied. Do not use the downloaded CSV until this table shows changed players."
+                    )
+                else:
+                    st.success(f"{len(changed_players_df)} player rows changed in the generated CSV below.")
+                    st.dataframe(changed_players_df, use_container_width=True, hide_index=True)
+
+                csv_hash = hashlib.md5(update_result["updated_csv_bytes"]).hexdigest()[:8]
+                match_id = str(summary.get("match_id") or "scorecard").replace("/", "-").replace(" ", "-")
                 st.download_button(
                     "Download updated HCCL Stats CSV",
                     data=update_result["updated_csv_bytes"],
-                    file_name="HCCL Stats Updated From Scorecard.csv",
+                    file_name=f"HCCL Stats Updated - {match_id} - {csv_hash}.csv",
                     mime="text/csv",
                     type="primary",
+                    key=f"download_updated_stats_{csv_hash}",
+                    disabled=changed_players_df.empty,
                 )
 
-                st.info("After downloading, upload this updated stats CSV in the sidebar to calculate the new rankings, then save the ranking snapshot to Supabase.")
+                if st.button("✅ Apply updated stats to rankings now", type="primary", disabled=changed_players_df.empty):
+                    st.session_state["active_stats_csv_bytes"] = update_result["updated_csv_bytes"]
+                    label = summary.get("match_id") or "scorecard update"
+                    st.session_state["active_stats_source"] = f"Updated from scorecard ({label})"
+                    st.success("Updated stats applied. Refreshing rankings now...")
+                    st.rerun()
+
+                st.info("You can either click 'Apply updated stats to rankings now' or download the updated CSV and upload it later. The original uploaded file is not overwritten.")
             except Exception as exc:
                 st.error(f"Could not update stats from scorecard PDF: {exc}")
                 st.caption("This feature currently expects the STUMPS scorecard PDF format with 1st/2nd Innings Scorecard tables.")

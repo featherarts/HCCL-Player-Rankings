@@ -121,7 +121,7 @@ If a failed save already created an empty snapshot, you can delete it from the `
 
 ## v4 Scorecard PDF Update + Auto Add Players Feature
 
-Dashboard v4.2 adds a **Scorecard Update** tab.
+Dashboard v4.4 adds a **Scorecard Update** tab.
 
 Workflow:
 
@@ -143,7 +143,7 @@ Recommended extra columns in the stats CSV:
 The rating engine ignores these helper columns, but the scorecard updater uses them for cleaner weekly updates.
 
 
-## v4.2 Auto-add players
+## v4.4 Auto-add players
 
 This version supports the user's new CSV layout with `Stumps Name` after `NAME`.
 
@@ -156,3 +156,13 @@ Recommended weekly process:
 4. Review matched players and new players added.
 5. Download the updated HCCL Stats CSV.
 6. Upload the downloaded CSV in the sidebar to generate updated rankings.
+
+
+## v4.4 Fix - Apply Scorecard Update Immediately
+
+The Scorecard Update tab now has an **Apply updated stats to rankings now** button. After parsing a PDF, click this button to refresh the rankings in the same app session without downloading and re-uploading the CSV. You can still download the updated CSV for backup.
+
+
+## v4.4 fix
+
+The Scorecard Update tab now shows a `Stats changed in downloaded CSV` table before download. The download button is disabled if no player stat values changed, and generated filenames include match ID plus a hash so you do not accidentally open an older download.
