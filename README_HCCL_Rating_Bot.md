@@ -210,3 +210,18 @@ Tested with Match ID `wekv4064`:
 - Existing players updated: 10
 - New players added: 1 (`Navindu Pamod`)
 
+
+## v4.8 Formula Audit tab
+
+This version adds a new `Formula Audit` tab.
+
+Use it to select any player and recheck the rating calculation line by line:
+
+- Raw player stats used from the uploaded HCCL Stats CSV
+- Current benchmark values used for normalization
+- Batting calculation steps: Runs Score, Average Score, Strike Rate Score, Career Score, Recent Form, Achievement Score, Experience Score and Final Rating
+- Bowling calculation steps: Wickets Score, Bowling Average Score, Economy Score, BSR Score, Career Score, Recent Form, Achievement Score and Final Rating
+- All-rounder calculation using the geometric mean
+- Recent 5 match point breakdown for batting and bowling
+
+This tab uses the same rating engine functions as the dashboard ranking tables, so the rounded final ratings should match the displayed Batting, Bowling and All-Rounder rankings.

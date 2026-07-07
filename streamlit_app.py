@@ -19,6 +19,7 @@ from hccl_rating_engine import (
     write_side_by_side_rankings,
     write_team_rankings,
     write_weekly_report,
+    calculate_formula_audit,
 )
 from scorecard_updater import update_stats_csv_from_scorecard
 
@@ -73,7 +74,7 @@ st.markdown(
 st.markdown(
     """
     <div class="hccl-hero">
-        <div class="hccl-pill">OFFICIAL HCCL RANKINGS • DASHBOARD v4.4</div>
+        <div class="hccl-pill">OFFICIAL HCCL RANKINGS • DASHBOARD v4.8</div>
         <div class="hccl-title">HCCL Player Rankings Dashboard</div>
         <div class="hccl-subtitle">
             Upload weekly stats, update stats from scorecard PDFs, calculate official rankings, save snapshots to Supabase, and reuse saved rankings as next week's previous rankings.
@@ -264,6 +265,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "🛡️ Team Rankings",
         "🔎 Player Details",
         "⚙️ Benchmarks",
+        "🧮 Formula Audit",
         "🧾 Scorecard Update",
         "💾 Save / Load",
     ])
@@ -320,7 +322,56 @@ with tempfile.TemporaryDirectory() as tmpdir:
         benchmark_df.columns = ["Benchmark", "Value"]
         st.dataframe(benchmark_df, use_container_width=True, hide_index=True)
 
+
+
     with tabs[7]:
+        st.subheader("Formula Audit / Player Calculation Check")
+        st.caption("Select a player to see exactly how batting, bowling, and all-rounder ratings are calculated from the uploaded stats CSV.")
+
+        player_names = sorted([str(p.get("NAME", "")).strip() for p in players if str(p.get("NAME", "")).strip()])
+        selected_audit_player = st.selectbox("Select player", player_names, key="formula_audit_player")
+
+        if selected_audit_player:
+            try:
+                audit = calculate_formula_audit(players, selected_audit_player)
+                rating_summary = audit["ratings"]
+
+                a1, a2, a3 = st.columns(3)
+                with a1:
+                    st.metric("Batting Rating", rating_summary.get("Batting Rating", ""))
+                with a2:
+                    st.metric("Bowling Rating", rating_summary.get("Bowling Rating", ""))
+                with a3:
+                    st.metric("All-Rounder Rating", rating_summary.get("All-Rounder Rating", ""))
+
+                st.markdown("### Player raw stats used")
+                st.dataframe(pd.DataFrame([audit["player"]]), use_container_width=True, hide_index=True)
+
+                st.markdown("### Current benchmarks used")
+                benchmark_audit_df = pd.DataFrame([audit["benchmarks"]]).T.reset_index()
+                benchmark_audit_df.columns = ["Benchmark", "Value"]
+                st.dataframe(benchmark_audit_df, use_container_width=True, hide_index=True)
+
+                st.markdown("### Batting rating calculation")
+                st.dataframe(pd.DataFrame(audit["batting_steps"]), use_container_width=True, hide_index=True)
+
+                with st.expander("Show batting recent 5 match point breakdown"):
+                    st.dataframe(pd.DataFrame(audit["batting_recent_rows"]), use_container_width=True, hide_index=True)
+
+                st.markdown("### Bowling rating calculation")
+                st.dataframe(pd.DataFrame(audit["bowling_steps"]), use_container_width=True, hide_index=True)
+
+                with st.expander("Show bowling recent 5 match point breakdown"):
+                    st.dataframe(pd.DataFrame(audit["bowling_recent_rows"]), use_container_width=True, hide_index=True)
+
+                st.markdown("### All-rounder calculation")
+                st.dataframe(pd.DataFrame(audit["all_rounder_steps"]), use_container_width=True, hide_index=True)
+
+                st.info("This audit uses the same calculation functions as the ranking tables, so the final rounded ratings should match the dashboard rankings.")
+            except Exception as exc:
+                st.error(f"Could not calculate formula audit: {exc}")
+
+    with tabs[8]:
         st.subheader("Update HCCL Stats CSV from Scorecard PDF")
         st.caption("Upload one STUMPS match scorecard PDF. The app will update career totals and recent 5 form, then give you a new HCCL Stats CSV to download. It will not overwrite your original file.")
 
@@ -425,7 +476,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
                 st.error(f"Could not update stats from scorecard PDF: {exc}")
                 st.caption("This feature currently expects the STUMPS scorecard PDF format with 1st/2nd Innings Scorecard tables.")
 
-    with tabs[8]:
+    with tabs[9]:
         st.subheader("Save Current Rankings to Supabase")
         if not db_ready:
             st.error("Supabase is not configured yet. Add SUPABASE_URL and SUPABASE_KEY in Streamlit secrets, then restart/redeploy the app.")

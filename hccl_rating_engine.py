@@ -878,3 +878,199 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# -----------------------------
+# Formula audit helpers for Streamlit dashboard
+# -----------------------------
+
+def _round2(value: object) -> float:
+    try:
+        return round(float(value), 2)
+    except Exception:
+        return 0.0
+
+
+def _safe_div(numerator: float, denominator: float) -> float:
+    return (numerator / denominator) if denominator else 0.0
+
+
+def _recent_line_items(recent_text: str, kind: str) -> List[Dict[str, Any]]:
+    """Return match-by-match recent-form audit rows."""
+    rows: List[Dict[str, Any]] = []
+    lines = [line.strip() for line in str(recent_text).splitlines() if line.strip()]
+    for i, line in enumerate(lines[:5], start=1):
+        if kind == "batting":
+            dnb = "DNB" in line.upper()
+            runs_match = re.search(r"(\d+)\s*runs?", line, flags=re.IGNORECASE)
+            sr_match = re.search(r"([0-9.]+)\s*SR", line, flags=re.IGNORECASE)
+            runs = int(runs_match.group(1)) if runs_match else 0
+            sr = float(sr_match.group(1)) if sr_match else 0.0
+            run_pts = 0 if dnb else runs_points(runs)
+            sr_pts = 0 if dnb else batting_sr_bonus(sr)
+            highest_pts = 20 if is_yes(line, "Highest scorer") else 0
+            not_out_pts = 5 if is_yes(line, "Not out") else 0
+            potm_pts = 20 if is_yes(line, "POTM") else 0
+            total = run_pts + sr_pts + highest_pts + not_out_pts + potm_pts
+            rows.append({
+                "Match": i,
+                "Raw recent line": line,
+                "Runs": runs if not dnb else "DNB",
+                "SR/Eco": sr if not dnb else "DNB",
+                "Base points": run_pts,
+                "SR/Eco bonus": sr_pts,
+                "Highest scorer / POTM bonus": highest_pts + potm_pts,
+                "Not out bonus": not_out_pts,
+                "Total points": total,
+            })
+        else:
+            dnb = "DNB" in line.upper()
+            wicket_match = re.search(r"(\d+)\s*Wickets?", line, flags=re.IGNORECASE)
+            eco_match = re.search(r"([0-9.]+)\s*Eco", line, flags=re.IGNORECASE)
+            wickets = int(wicket_match.group(1)) if wicket_match else 0
+            eco = float(eco_match.group(1)) if eco_match else 0.0
+            wicket_pts = 0 if dnb else wicket_points(wickets)
+            eco_pts = 0 if dnb else economy_bonus(eco)
+            potm_pts = 20 if is_yes(line, "POTM") else 0
+            total = wicket_pts + eco_pts + potm_pts
+            rows.append({
+                "Match": i,
+                "Raw recent line": line,
+                "Wickets": wickets if not dnb else "DNB",
+                "SR/Eco": eco if not dnb else "DNB",
+                "Base points": wicket_pts,
+                "SR/Eco bonus": eco_pts,
+                "Highest scorer / POTM bonus": potm_pts,
+                "Not out bonus": 0,
+                "Total points": total,
+            })
+
+    for i in range(len(rows) + 1, 6):
+        rows.append({
+            "Match": i,
+            "Raw recent line": "Missing / treated as 0",
+            "Runs" if kind == "batting" else "Wickets": 0,
+            "SR/Eco": 0,
+            "Base points": 0,
+            "SR/Eco bonus": 0,
+            "Highest scorer / POTM bonus": 0,
+            "Not out bonus": 0,
+            "Total points": 0,
+        })
+    return rows
+
+
+def calculate_formula_audit(players: List[Dict[str, str]], player_name: str) -> Dict[str, Any]:
+    """Return a line-by-line calculation audit for a selected player."""
+    selected: Optional[Dict[str, str]] = None
+    target = normalize_name(player_name)
+    for p in players:
+        if normalize_name(p.get("NAME", "")) == target:
+            selected = p
+            break
+    if selected is None:
+        raise ValueError(f"Player not found: {player_name}")
+
+    ratings, benchmarks = calculate_ratings(players)
+    rating_by_name = {normalize_name(r.name): r for r in ratings}
+    r = rating_by_name.get(target)
+    if r is None:
+        raise ValueError(f"Could not calculate rating for: {player_name}")
+
+    runs = to_float(selected["RUNS"])
+    innings = to_int(selected["Innings"])
+    balls_faced = to_float(selected["Balls Faced"])
+    bat_avg = to_float(selected["Bat AVG"])
+    sr = to_float(selected["SR"])
+    rap = to_float(selected["RAP"])
+    wickets = to_float(selected["WICKETS"])
+    balls_bowled = to_float(selected["Balls Bowled"])
+    bowl_avg = to_float(selected["Bowl AVG"])
+    eco = to_float(selected["ECO"])
+    bsr = to_float(selected["BSR"])
+    bap = to_float(selected["BAP"])
+
+    batting_recent_form, batting_recent_points = parse_batting_recent(selected["Bat Recent 5 Matches"])
+    bowling_recent_form, bowling_recent_points = parse_bowling_recent(selected["Bowl Recent 5 Matches"])
+
+    runs_score = _safe_div(runs, benchmarks["highest_runs"]) * 100
+    bat_avg_score = _safe_div(bat_avg, benchmarks["highest_bat_avg"]) * 100
+    sr_score = _safe_div(sr, benchmarks["highest_sr"]) * 100
+    batting_career = (runs_score * 0.50) + (bat_avg_score * 0.30) + (sr_score * 0.20)
+    batting_achievement = _safe_div(rap, benchmarks["highest_rap"]) * 100
+    exp = experience_score(innings)
+    batting_rating = 100 + (batting_career * 5) + (batting_recent_form * 3) + batting_achievement + exp if (runs > 0 or innings > 0) else None
+
+    wickets_score = _safe_div(wickets, benchmarks["highest_wickets"]) * 100
+    bowling_avg_score = _safe_div(benchmarks["best_bowl_avg"], bowl_avg) * 100 if bowl_avg else 0
+    eco_score = _safe_div(benchmarks["best_eco"], eco) * 100 if eco else 0
+    bsr_score = _safe_div(benchmarks["best_bsr"], bsr) * 100 if bsr else 0
+    bowling_career = (wickets_score * 0.60) + (bowling_avg_score * 0.20) + (eco_score * 0.10) + (bsr_score * 0.10)
+    bowling_achievement = _safe_div(bap, benchmarks["highest_bap"]) * 100
+    bowling_rating = 100 + (bowling_career * 5) + (bowling_recent_form * 3) + (bowling_achievement * 2) if wickets > 0 else None
+
+    ar_rating = math.sqrt(batting_rating * bowling_rating) if batting_rating is not None and bowling_rating is not None else None
+
+    batting_steps = [
+        {"Step": "Runs Score", "Formula": "Player Runs / Highest Runs × 100", "Values Used": f"{runs} / {benchmarks['highest_runs']} × 100", "Result": _round2(runs_score)},
+        {"Step": "Average Score", "Formula": "Player Bat AVG / Highest Bat AVG × 100", "Values Used": f"{bat_avg} / {benchmarks['highest_bat_avg']} × 100", "Result": _round2(bat_avg_score)},
+        {"Step": "Strike Rate Score", "Formula": "Player SR / Highest SR × 100", "Values Used": f"{sr} / {benchmarks['highest_sr']} × 100", "Result": _round2(sr_score)},
+        {"Step": "Career Score", "Formula": "Runs Score×0.50 + AVG Score×0.30 + SR Score×0.20", "Values Used": f"{_round2(runs_score)}×0.50 + {_round2(bat_avg_score)}×0.30 + {_round2(sr_score)}×0.20", "Result": _round2(batting_career)},
+        {"Step": "Recent Form", "Formula": "Sum last 5 match points / 5", "Values Used": f"{[int(x) for x in batting_recent_points]} / 5", "Result": _round2(batting_recent_form)},
+        {"Step": "Achievement Score", "Formula": "Player RAP / Highest RAP × 100", "Values Used": f"{rap} / {benchmarks['highest_rap']} × 100", "Result": _round2(batting_achievement)},
+        {"Step": "Experience Score", "Formula": "Based on innings bands", "Values Used": f"{innings} innings", "Result": exp},
+        {"Step": "Final Batting Rating", "Formula": "100 + Career×5 + Recent×3 + Achievement + Experience", "Values Used": f"100 + {_round2(batting_career)}×5 + {_round2(batting_recent_form)}×3 + {_round2(batting_achievement)} + {exp}", "Result": round(batting_rating) if batting_rating is not None else ""},
+    ]
+
+    bowling_steps = [
+        {"Step": "Wickets Score", "Formula": "Player Wickets / Highest Wickets × 100", "Values Used": f"{wickets} / {benchmarks['highest_wickets']} × 100", "Result": _round2(wickets_score)},
+        {"Step": "Bowling AVG Score", "Formula": "Best Bowling AVG / Player Bowling AVG × 100", "Values Used": f"{benchmarks['best_bowl_avg']} / {bowl_avg} × 100", "Result": _round2(bowling_avg_score)},
+        {"Step": "Economy Score", "Formula": "Best Economy / Player Economy × 100", "Values Used": f"{benchmarks['best_eco']} / {eco} × 100", "Result": _round2(eco_score)},
+        {"Step": "BSR Score", "Formula": "Best BSR / Player BSR × 100", "Values Used": f"{benchmarks['best_bsr']} / {bsr} × 100", "Result": _round2(bsr_score)},
+        {"Step": "Career Score", "Formula": "Wickets×0.60 + AVG×0.20 + Economy×0.10 + BSR×0.10", "Values Used": f"{_round2(wickets_score)}×0.60 + {_round2(bowling_avg_score)}×0.20 + {_round2(eco_score)}×0.10 + {_round2(bsr_score)}×0.10", "Result": _round2(bowling_career)},
+        {"Step": "Recent Form", "Formula": "Sum last 5 team match points / 5", "Values Used": f"{[int(x) for x in bowling_recent_points]} / 5", "Result": _round2(bowling_recent_form)},
+        {"Step": "Achievement Score", "Formula": "Player BAP / Highest BAP × 100", "Values Used": f"{bap} / {benchmarks['highest_bap']} × 100", "Result": _round2(bowling_achievement)},
+        {"Step": "Final Bowling Rating", "Formula": "100 + Career×5 + Recent×3 + Achievement×2", "Values Used": f"100 + {_round2(bowling_career)}×5 + {_round2(bowling_recent_form)}×3 + {_round2(bowling_achievement)}×2", "Result": round(bowling_rating) if bowling_rating is not None else ""},
+    ]
+
+    all_rounder_steps = [{
+        "Step": "Final All-Rounder Rating",
+        "Formula": "√(Batting Rating × Bowling Rating)",
+        "Values Used": f"√({round(batting_rating) if batting_rating is not None else ''} × {round(bowling_rating) if bowling_rating is not None else ''})",
+        "Result": round(ar_rating) if ar_rating is not None else "",
+    }]
+
+    raw_stats = {
+        "ID": selected.get("ID", ""),
+        "Player": selected.get("NAME", ""),
+        "Team": selected.get("TEAM", ""),
+        "Innings": innings,
+        "Runs": runs,
+        "Balls Faced": balls_faced,
+        "Bat AVG": bat_avg,
+        "SR": sr,
+        "RAP": rap,
+        "Wickets": wickets,
+        "Balls Bowled": balls_bowled,
+        "Bowl AVG": bowl_avg,
+        "ECO": eco,
+        "BSR": bsr,
+        "BAP": bap,
+        "Batting Qualified": "Yes" if r.batting_qualified else "No",
+        "Bowling Qualified": "Yes" if r.bowling_qualified else "No",
+        "All-Rounder Qualified": "Yes" if r.all_rounder_qualified else "No",
+    }
+
+    return {
+        "player": raw_stats,
+        "benchmarks": benchmarks,
+        "ratings": {
+            "Batting Rating": round(batting_rating) if batting_rating is not None else "",
+            "Bowling Rating": round(bowling_rating) if bowling_rating is not None else "",
+            "All-Rounder Rating": round(ar_rating) if ar_rating is not None else "",
+        },
+        "batting_steps": batting_steps,
+        "bowling_steps": bowling_steps,
+        "all_rounder_steps": all_rounder_steps,
+        "batting_recent_rows": _recent_line_items(selected["Bat Recent 5 Matches"], "batting"),
+        "bowling_recent_rows": _recent_line_items(selected["Bowl Recent 5 Matches"], "bowling"),
+    }
