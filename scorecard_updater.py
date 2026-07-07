@@ -5,8 +5,10 @@ STUMPS scorecard PDFs.
 
 Important assumptions:
 - Scorecard PDF is the STUMPS match report format used by HCCL.
-- The stats CSV may include either "Scorecard Username" or "Stumps Name" to match
+- The stats CSV may include either "Stumps Name" or "Scorecard Username" to match
   PDF names faster. If both are missing, player NAME is used as fallback.
+- If a scorecard player is not found in the CSV, the updater automatically adds
+  a new player row with the scorecard name and starts their stats from this match.
 - The updater appends helper columns for more accurate future updates:
   "Bat Dismissals" and "Bowl Runs Conceded". The rating engine ignores these
   extra columns, but the updater uses them to keep averages/economy accurate.
@@ -275,7 +277,7 @@ def parse_scorecard_pdf_bytes(pdf_bytes: bytes) -> MatchScorecard:
 def _decode_csv_bytes(stats_csv_bytes: bytes) -> str:
     """Decode CSV files saved by Excel/Google Sheets on different Windows setups."""
     last_error: Optional[Exception] = None
-    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+    for enc in ("utf-8-sig", "utf-8", "mac_roman", "cp1252", "latin-1"):
         try:
             return stats_csv_bytes.decode(enc)
         except UnicodeDecodeError as exc:
@@ -495,6 +497,57 @@ def _recalculate_bowling(row: List[str], idx: Dict[str, int]) -> None:
     _set_int(row, idx["BAP"], bap)
 
 
+def _next_player_id(rows: List[List[str]], idx: Dict[str, int]) -> str:
+    max_id = 0
+    id_pos = idx.get("ID")
+    if id_pos is not None:
+        for row in rows:
+            raw = str(row[id_pos] if id_pos < len(row) else "").strip()
+            m = re.search(r"(\d+)$", raw)
+            if m:
+                max_id = max(max_id, int(m.group(1)))
+    return f"P{max_id + 1:03d}"
+
+
+def _infer_bowling_team(batting_team: str, teams: List[str]) -> str:
+    batting_key = normalize_name(batting_team)
+    for team in teams:
+        if normalize_name(team) != batting_key:
+            return team
+    return ""
+
+
+def _set_default_new_player_values(row: List[str], idx: Dict[str, int]) -> None:
+    # Keep text fields blank unless known. Numeric stats should start from zero.
+    numeric_cols = [
+        "Innings", "RUNS", "Balls Faced", "Bat AVG", "SR", "30s", "50s", "0s",
+        "POTMs", "RAP", "WICKETS", "Balls Bowled", "Bowl AVG", "ECO", "3Fers",
+        "4Fers", "BSR", "BAP", BAT_DISMISSALS_COL, BOWL_RUNS_CONCEDED_COL,
+    ]
+    for col in numeric_cols:
+        if col in idx and idx[col] < len(row):
+            row[idx[col]] = "0"
+
+
+def _create_new_player_row(
+    header: List[str],
+    rows: List[List[str]],
+    idx: Dict[str, int],
+    scorecard_name: str,
+    team: str = "",
+) -> Tuple[List[str], int]:
+    row = [""] * len(header)
+    clean_name = _clean_name(scorecard_name) or "Unknown Player"
+    row[idx["ID"]] = _next_player_id(rows, idx)
+    row[idx["NAME"]] = clean_name
+    row[idx["TEAM"]] = _clean_name(team)
+    if USERNAME_COL in idx:
+        row[idx[USERNAME_COL]] = clean_name
+    _set_default_new_player_values(row, idx)
+    rows.append(row)
+    return row, len(rows) - 1
+
+
 def _match_players(match: MatchScorecard) -> List[str]:
     names = []
     seen = set()
@@ -533,21 +586,38 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
     batting_updates: List[Dict[str, Any]] = []
     bowling_updates: List[Dict[str, Any]] = []
     unmatched: List[Dict[str, str]] = []
+    new_players: List[Dict[str, str]] = []
     matched_row_ids = set()
     bowling_names = {normalize_name(bw.scorecard_name) for bw in match.bowling}
 
-    def find_row(scorecard_name: str, kind: str) -> Optional[List[str]]:
+    def find_or_add_row(scorecard_name: str, kind: str, team: str = "") -> Optional[List[str]]:
         key = normalize_name(scorecard_name)
+        if not key:
+            unmatched.append({"Type": kind, "Scorecard Name": scorecard_name, "Reason": "Blank/invalid scorecard name"})
+            return None
         if key in player_index:
             row = rows[player_index[key]]
             matched_row_ids.add(player_index[key])
             return row
-        unmatched.append({"Type": kind, "Scorecard Name": scorecard_name, "Reason": "No matching Stumps Name / Scorecard Username / NAME"})
-        return None
+
+        # New scorecard player: automatically add a row to the stats CSV.
+        row, row_idx = _create_new_player_row(header, rows, idx, scorecard_name, team)
+        player_index[key] = row_idx
+        player_index[normalize_name(row[idx["NAME"]])] = row_idx
+        if USERNAME_COL in idx:
+            player_index[normalize_name(row[idx[USERNAME_COL]])] = row_idx
+        matched_row_ids.add(row_idx)
+        new_players.append({
+            "Scorecard Name": _clean_name(scorecard_name),
+            "Added As": row[idx["NAME"]],
+            "Team": row[idx["TEAM"]],
+            "Reason": f"Not found in CSV during {kind} update",
+        })
+        return row
 
     # Batting update.
     for b in match.batting:
-        row = find_row(b.scorecard_name, "Batting")
+        row = find_or_add_row(b.scorecard_name, "Batting", b.team)
         if row is None:
             continue
         is_potm = normalize_name(b.scorecard_name) == potm_key
@@ -587,7 +657,7 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
 
     # Bowling update.
     for bw in match.bowling:
-        row = find_row(bw.scorecard_name, "Bowling")
+        row = find_or_add_row(bw.scorecard_name, "Bowling", _infer_bowling_team(bw.bowling_to_team, match.teams))
         if row is None:
             continue
         is_potm = normalize_name(bw.scorecard_name) == potm_key
@@ -619,7 +689,7 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
         key = normalize_name(scorecard_name)
         if key in bowling_names:
             continue
-        row = find_row(scorecard_name, "Bowling DNB")
+        row = find_or_add_row(scorecard_name, "Bowling DNB")
         if row is None:
             continue
         is_potm = key == potm_key
@@ -643,7 +713,11 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
         _recalculate_batting(potm_row, idx)
         _recalculate_bowling(potm_row, idx)
     elif match.player_of_match:
-        unmatched.append({"Type": "POTM", "Scorecard Name": match.player_of_match, "Reason": "Player of the Match not matched"})
+        potm_row = find_or_add_row(match.player_of_match, "POTM")
+        if potm_row is not None:
+            _set_int(potm_row, idx["POTMs"], to_int(potm_row[idx["POTMs"]]) + 1)
+            _recalculate_batting(potm_row, idx)
+            _recalculate_bowling(potm_row, idx)
 
     updated_csv = _csv_bytes(header, rows)
     return {
@@ -652,6 +726,7 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
         "batting_updates": batting_updates,
         "bowling_updates": bowling_updates,
         "unmatched": unmatched,
+        "new_players": new_players,
         "helper_columns_added": HELPER_COLUMNS,
         "summary": {
             "match_id": match.match_id,
@@ -662,5 +737,6 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
             "batting_rows_updated": len(batting_updates),
             "bowling_rows_updated": len(bowling_updates),
             "unmatched_count": len(unmatched),
+            "new_players_added": len(new_players),
         },
     }

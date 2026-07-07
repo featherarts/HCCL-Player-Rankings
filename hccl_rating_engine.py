@@ -279,7 +279,7 @@ class PreviousEntry:
 
 def _decode_csv_bytes(data: bytes) -> str:
     last_error: Optional[Exception] = None
-    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+    for enc in ("utf-8-sig", "utf-8", "mac_roman", "cp1252", "latin-1"):
         try:
             return data.decode(enc)
         except UnicodeDecodeError as exc:

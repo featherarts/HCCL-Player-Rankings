@@ -304,9 +304,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
         st.caption("Upload one STUMPS match scorecard PDF. The app will update career totals and recent 5 form, then give you a new HCCL Stats CSV to download. It will not overwrite your original file.")
 
         st.markdown("""
-        **Recommended:** add a final column to your stats CSV named `Stumps Name` or `Scorecard Username`.  
-        Put the exact name used in the scorecard PDF there, for example `Kalana Thenu`, `Sasi18`, or `Pasindu Dilshan`.
-        If the column is missing or blank, the app falls back to the `NAME` column.
+        **Your CSV can use the `Stumps Name` column.**  
+        Put the exact name used in the STUMPS scorecard PDF there, for example `Kalana Thenu`, `Sasi18`, or `Pasindu Dilshan`.
+        If a scorecard player is not found in the CSV, the app will automatically add a new player row for him.
         """)
 
         scorecard_pdf = st.file_uploader("Upload match scorecard PDF", type=["pdf"], key="scorecard_pdf_upload")
@@ -318,7 +318,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
                 summary = update_result["summary"]
                 st.success("Scorecard parsed and stats CSV update prepared. Please review the tables before using the downloaded CSV.")
 
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4, c5 = st.columns(5)
                 with c1:
                     st.metric("Match ID", summary.get("match_id") or "-")
                 with c2:
@@ -326,6 +326,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
                 with c3:
                     st.metric("Batting rows updated", summary.get("batting_rows_updated", 0))
                 with c4:
+                    st.metric("New players added", summary.get("new_players_added", 0))
+                with c5:
                     st.metric("Unmatched names", summary.get("unmatched_count", 0))
 
                 st.markdown("### Parsed batting updates")
@@ -342,13 +344,21 @@ with tempfile.TemporaryDirectory() as tmpdir:
                 else:
                     st.dataframe(bowl_df, use_container_width=True, hide_index=True)
 
+                new_players_df = pd.DataFrame(update_result.get("new_players", []))
+                if not new_players_df.empty:
+                    st.markdown("### New players automatically added")
+                    st.info("These players were found in the scorecard but not in your stats CSV, so the app added them to the downloaded updated CSV.")
+                    st.dataframe(new_players_df, use_container_width=True, hide_index=True)
+
                 unmatched_df = pd.DataFrame(update_result["unmatched"])
                 if not unmatched_df.empty:
-                    st.markdown("### Names that need manual mapping")
-                    st.error("Some scorecard names did not match the stats CSV. Add/fix `Stumps Name` or `Scorecard Username` for these players, then try again.")
+                    st.markdown("### Names that still need manual review")
+                    st.error("These rows could not be processed automatically. Check the scorecard PDF text or fix the player/team name manually in the downloaded CSV.")
                     st.dataframe(unmatched_df, use_container_width=True, hide_index=True)
+                elif new_players_df.empty:
+                    st.success("All parsed scorecard names were matched to existing players.")
                 else:
-                    st.success("All parsed scorecard names were matched.")
+                    st.success("All parsed scorecard names were either matched or added as new players.")
 
                 st.download_button(
                     "Download updated HCCL Stats CSV",

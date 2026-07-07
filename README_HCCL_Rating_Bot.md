@@ -119,9 +119,9 @@ The issue happened when a player had no previous rank/rating yet. The app used a
 If a failed save already created an empty snapshot, you can delete it from the `hccl_snapshots` table in Supabase. Deleting the snapshot also deletes linked rows because the schema uses cascade delete.
 
 
-## v4 Scorecard PDF Update Feature
+## v4 Scorecard PDF Update + Auto Add Players Feature
 
-Dashboard v4 adds a **Scorecard Update** tab.
+Dashboard v4.2 adds a **Scorecard Update** tab.
 
 Workflow:
 
@@ -129,15 +129,30 @@ Workflow:
 2. Open the `🧾 Scorecard Update` tab.
 3. Upload one STUMPS match scorecard PDF.
 4. Review the parsed batting and bowling updates.
-5. If any scorecard names are unmatched, add/fix the `Stumps Name` or `Scorecard Username` column in your stats CSV and try again.
+5. If any scorecard names are unmatched, add/fix the `Stumps Name` or `Stumps Name / Scorecard Username` column in your stats CSV and try again.
 6. Download `HCCL Stats Updated From Scorecard.csv`.
 7. Upload that downloaded CSV back in the sidebar to calculate new rankings.
 8. Save the new ranking snapshot to Supabase.
 
 Recommended extra columns in the stats CSV:
 
-- `Stumps Name` or `Scorecard Username` — exact name used in the scorecard PDF. You can add multiple aliases separated by commas.
+- `Stumps Name` or `Stumps Name / Scorecard Username` — exact name used in the scorecard PDF. You can add multiple aliases separated by commas.
 - `Bat Dismissals` — helper column used to keep batting average accurate.
 - `Bowl Runs Conceded` — helper column used to keep bowling average/economy accurate.
 
 The rating engine ignores these helper columns, but the scorecard updater uses them for cleaner weekly updates.
+
+
+## v4.2 Auto-add players
+
+This version supports the user's new CSV layout with `Stumps Name` after `NAME`.
+
+If a player appears in a STUMPS scorecard PDF but is not found in the CSV by `Stumps Name`, `Scorecard Username`, or `NAME`, the app automatically adds a new player row to the downloaded updated stats CSV. The new row starts with zero career stats and then applies the match stats from the PDF.
+
+Recommended weekly process:
+1. Upload your latest HCCL Stats CSV.
+2. Open the Scorecard Update tab.
+3. Upload the match scorecard PDF.
+4. Review matched players and new players added.
+5. Download the updated HCCL Stats CSV.
+6. Upload the downloaded CSV in the sidebar to generate updated rankings.
