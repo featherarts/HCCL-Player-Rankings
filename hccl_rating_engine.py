@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import math
 import re
 from dataclasses import dataclass, asdict
@@ -82,6 +83,40 @@ def normalize_name(name: object) -> str:
 def is_yes(line: str, label: str) -> bool:
     pattern = rf"{re.escape(label)}\s+Yes"
     return re.search(pattern, line, flags=re.IGNORECASE) is not None
+
+
+def split_recent_lines(recent_text: object) -> List[str]:
+    """Split a Recent 5 Matches cell into exactly the match lines it contains.
+
+    The HCCL stats CSV stores recent-form cells as quoted multiline CSV values.
+    Some older versions of the CSV reader accidentally removed those embedded
+    newline characters and joined the lines together like `... POTM No2. 25 runs`.
+    This splitter supports both valid multiline cells and those older joined cells.
+    """
+    text = str(recent_text or "").replace("\\n", "\n").strip()
+    if not text or text.lower() == "nan":
+        return []
+
+    # Normal case: quoted CSV multiline field was preserved correctly.
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) > 1:
+        return lines[:5]
+
+    # Fallback case: lines were joined together. Split before numbered entries
+    # like `2.`, but avoid decimals such as 163.6 or 0.5.
+    joined = lines[0] if lines else text
+    matches = list(re.finditer(r"(?<![\d.])([1-5])\.\s*", joined))
+    if len(matches) > 1:
+        entries: List[str] = []
+        for i, match in enumerate(matches):
+            start = match.start()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(joined)
+            entry = joined[start:end].strip()
+            if entry:
+                entries.append(entry)
+        return entries[:5]
+
+    return [joined]
 
 
 def rating_display(value: Optional[float]) -> str:
@@ -175,10 +210,7 @@ def parse_batting_recent(recent_text: str) -> Tuple[float, List[int]]:
     """Return recent form score and individual match points for batting."""
     points: List[int] = []
 
-    for raw_line in str(recent_text).splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
+    for line in split_recent_lines(recent_text):
 
         match_points = 0
         dnb = "DNB" in line.upper()
@@ -212,10 +244,7 @@ def parse_bowling_recent(recent_text: str) -> Tuple[float, List[int]]:
     """Return recent form score and individual match points for bowling."""
     points: List[int] = []
 
-    for raw_line in str(recent_text).splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
+    for line in split_recent_lines(recent_text):
 
         match_points = 0
         dnb = "DNB" in line.upper()
@@ -356,7 +385,7 @@ def _detect_stats_columns(header: List[str]) -> Dict[str, Optional[int]]:
 def read_stats_csv(csv_path: str | Path) -> List[Dict[str, str]]:
     path = Path(csv_path)
     text = _decode_csv_bytes(path.read_bytes())
-    rows = list(csv.reader(text.splitlines()))
+    rows = list(csv.reader(io.StringIO(text)))
 
     if not rows:
         raise ValueError("The stats CSV is empty.")
@@ -897,7 +926,7 @@ def _safe_div(numerator: float, denominator: float) -> float:
 def _recent_line_items(recent_text: str, kind: str) -> List[Dict[str, Any]]:
     """Return match-by-match recent-form audit rows."""
     rows: List[Dict[str, Any]] = []
-    lines = [line.strip() for line in str(recent_text).splitlines() if line.strip()]
+    lines = split_recent_lines(recent_text)
     for i, line in enumerate(lines[:5], start=1):
         if kind == "batting":
             dnb = "DNB" in line.upper()
