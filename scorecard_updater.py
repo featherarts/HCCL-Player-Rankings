@@ -19,6 +19,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import difflib
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -207,7 +208,30 @@ def _parse_bowler_line(line: str, batting_team: str) -> Optional[BowlerFigures]:
     )
 
 
+def _is_batting_header(line: str) -> bool:
+    return bool(re.search(r"(?:^|\s)R\s+B\s+4s\s+6s\s+SR$", line.strip(), flags=re.I))
+
+
+def _extract_team_from_batting_header(line: str) -> str:
+    # Handles both of these PyMuPDF extraction styles:
+    #   INVINCIBLE LORDS R B 4s 6s SR
+    #   R B 4s 6s SR  (team was on the previous line)
+    return re.sub(r"\s+R\s+B\s+4s\s+6s\s+SR$", "", line.strip(), flags=re.I).strip()
+
+
+def _is_bowler_header(line: str) -> bool:
+    return bool(re.match(r"^Bowler(?:\s+O\s+M\s+R\s+W\s+Eco.*)?$", line.strip(), flags=re.I) or re.match(r"^O\s+M\s+R\s+W\s+Eco", line.strip(), flags=re.I))
+
+
 def parse_scorecard_text(text: str) -> MatchScorecard:
+    """Parse a STUMPS PDF text export into batting and bowling rows.
+
+    This parser is intentionally forgiving because the same STUMPS scorecard can
+    be extracted slightly differently by PyMuPDF/Streamlit depending on PDF
+    layout. It supports both a one-line team header like
+    `SUPER FIRE DRAGONS R B 4s 6s SR` and a split header where the team name and
+    `R B 4s 6s SR` appear on separate lines.
+    """
     lines = [re.sub(r"\s+", " ", ln).strip() for ln in str(text).splitlines()]
     lines = [ln for ln in lines if ln]
 
@@ -217,48 +241,67 @@ def parse_scorecard_text(text: str) -> MatchScorecard:
 
     i = 0
     while i < len(lines):
-        if re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
+        if not re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
             i += 1
-            if i >= len(lines):
-                break
-
-            team_line = lines[i]
-            team_match = re.match(r"^(?P<team>.+?)\s+R\s+B\s+4s\s+6s\s+SR$", team_line, flags=re.I)
-            if not team_match:
-                i += 1
-                continue
-            batting_team = team_match.group("team").strip()
-            if batting_team not in teams:
-                teams.append(batting_team)
-            i += 1
-
-            while i < len(lines):
-                low = lines[i].lower()
-                if low.startswith("extras") or low.startswith("total") or low.startswith("fall of wickets"):
-                    break
-                row = _parse_batter_line(lines[i], batting_team)
-                if row:
-                    batting.append(row)
-                i += 1
-
-            # Move to the bowling header for this innings.
-            while i < len(lines) and not re.match(r"^Bowler\s+O\s+M\s+R\s+W\s+Eco", lines[i], flags=re.I):
-                if re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
-                    break
-                i += 1
-
-            if i < len(lines) and re.match(r"^Bowler\s+O\s+M\s+R\s+W\s+Eco", lines[i], flags=re.I):
-                i += 1
-                while i < len(lines) and not re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
-                    row = _parse_bowler_line(lines[i], batting_team)
-                    if row:
-                        bowling.append(row)
-                    # Stop if footer/next pages start repeating non-scorecard content.
-                    if lines[i].lower().startswith("download ") or lines[i].lower() == "over comparison":
-                        break
-                    i += 1
             continue
+
         i += 1
+        if i >= len(lines):
+            break
+
+        # Find batting team/header.
+        batting_team = ""
+        search_start = i
+        while i < len(lines) and i < search_start + 8:
+            line = lines[i]
+            if _is_batting_header(line):
+                batting_team = _extract_team_from_batting_header(line)
+                if not batting_team and i > 0:
+                    batting_team = lines[i - 1].strip()
+                i += 1
+                break
+            # Most STUMPS PDFs put the team name directly before the column header.
+            if i + 1 < len(lines) and _is_batting_header(lines[i + 1]):
+                batting_team = line.strip()
+                i += 2
+                break
+            i += 1
+
+        if not batting_team:
+            continue
+        if batting_team not in teams:
+            teams.append(batting_team)
+
+        # Batting rows.
+        while i < len(lines):
+            low = lines[i].lower()
+            if low.startswith("extras") or low.startswith("total") or low.startswith("fall of wickets") or _is_bowler_header(lines[i]):
+                break
+            row = _parse_batter_line(lines[i], batting_team)
+            if row:
+                batting.append(row)
+            i += 1
+
+        # Move to the bowling header for this innings.
+        while i < len(lines) and not _is_bowler_header(lines[i]):
+            if re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
+                break
+            i += 1
+
+        if i < len(lines) and _is_bowler_header(lines[i]):
+            # Some extracted PDFs split the bowler header into two lines. Skip both
+            # the `Bowler` line and an optional `O M R W Eco...` line.
+            i += 1
+            if i < len(lines) and re.match(r"^O\s+M\s+R\s+W\s+Eco", lines[i], flags=re.I):
+                i += 1
+            while i < len(lines) and not re.match(r"^(1st|2nd) Innings Scorecard$", lines[i], flags=re.I):
+                low = lines[i].lower()
+                if low.startswith("download ") or low == "over comparison" or low == "match report":
+                    break
+                row = _parse_bowler_line(lines[i], batting_team)
+                if row:
+                    bowling.append(row)
+                i += 1
 
     return MatchScorecard(
         match_id=_extract_match_id(lines),
@@ -277,7 +320,7 @@ def parse_scorecard_pdf_bytes(pdf_bytes: bytes) -> MatchScorecard:
 def _decode_csv_bytes(stats_csv_bytes: bytes) -> str:
     """Decode CSV files saved by Excel/Google Sheets on different Windows setups."""
     last_error: Optional[Exception] = None
-    for enc in ("utf-8-sig", "utf-8", "mac_roman", "cp1252", "latin-1"):
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1", "mac_roman"):
         try:
             return stats_csv_bytes.decode(enc)
         except UnicodeDecodeError as exc:
@@ -413,20 +456,96 @@ def _split_aliases(value: str) -> List[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+def _player_aliases_for_row(row: List[str], idx: Dict[str, int]) -> List[str]:
+    candidates: List[str] = []
+    username = row[idx[USERNAME_COL]].strip() if USERNAME_COL in idx and idx[USERNAME_COL] < len(row) else ""
+    if username:
+        candidates.extend(_split_aliases(username))
+    if "NAME" in idx and idx["NAME"] < len(row):
+        candidates.append(row[idx["NAME"]])
+    # Add short first-name/token aliases from the real name as a fallback.
+    real_name = str(row[idx["NAME"]] if "NAME" in idx and idx["NAME"] < len(row) else "").strip()
+    for token in re.split(r"\s+", real_name):
+        token = token.strip()
+        if len(token) >= 4:
+            candidates.append(token)
+    # De-duplicate while preserving order.
+    seen = set()
+    output = []
+    for c in candidates:
+        k = normalize_name(c)
+        if k and k not in seen:
+            seen.add(k)
+            output.append(c)
+    return output
+
+
 def _build_player_index(rows: List[List[str]], idx: Dict[str, int]) -> Dict[str, int]:
     mapping: Dict[str, int] = {}
     for row_idx, row in enumerate(rows):
-        candidates = []
-        username = row[idx[USERNAME_COL]].strip() if idx[USERNAME_COL] < len(row) else ""
-        if username:
-            candidates.extend(_split_aliases(username))
-        candidates.append(row[idx["NAME"]])
-
-        for candidate in candidates:
+        for candidate in _player_aliases_for_row(row, idx):
             key = normalize_name(candidate)
             if key and key not in mapping:
                 mapping[key] = row_idx
     return mapping
+
+
+def _best_existing_player_match(
+    scorecard_name: str,
+    rows: List[List[str]],
+    idx: Dict[str, int],
+    preferred_team: str = "",
+) -> Tuple[Optional[int], str, float]:
+    """Return best existing row match without creating a duplicate row.
+
+    Exact alias match is always preferred. Then we try a conservative fuzzy match
+    against Stumps Name and NAME. This fixes cases where the scorecard name has
+    a suffix/captain marker or the CSV has a longer real name.
+    """
+    key = normalize_name(scorecard_name)
+    if not key:
+        return None, "", 0.0
+
+    exact_index = _build_player_index(rows, idx)
+    if key in exact_index:
+        return exact_index[key], "exact", 1.0
+
+    preferred_team_key = normalize_name(preferred_team)
+    candidates: List[Tuple[int, str, float]] = []
+    for row_idx, row in enumerate(rows):
+        row_team_key = normalize_name(row[idx["TEAM"]] if idx.get("TEAM") is not None and idx["TEAM"] < len(row) else "")
+        aliases = _player_aliases_for_row(row, idx)
+        best_ratio = 0.0
+        best_alias = ""
+        for alias in aliases:
+            alias_key = normalize_name(alias)
+            if not alias_key:
+                continue
+            # Strong containment cases, for names like Kalana Thenu vs Kalana Thenuja.
+            if key in alias_key or alias_key in key:
+                ratio = min(len(key), len(alias_key)) / max(len(key), len(alias_key))
+                ratio = max(ratio, difflib.SequenceMatcher(None, key, alias_key).ratio())
+            else:
+                ratio = difflib.SequenceMatcher(None, key, alias_key).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_alias = alias
+
+        if best_ratio >= 0.82:
+            # Prefer same-team matches when team is known.
+            if preferred_team_key and row_team_key and preferred_team_key == row_team_key:
+                best_ratio += 0.06
+            candidates.append((row_idx, best_alias, best_ratio))
+
+    if not candidates:
+        return None, "", 0.0
+
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    row_idx, alias, score = candidates[0]
+    # Require a slightly higher score if team did not help.
+    if score >= 0.86:
+        return row_idx, f"fuzzy:{alias}", min(score, 1.0)
+    return None, "", 0.0
 
 
 def _get_row_number(value: Any) -> str:
@@ -456,16 +575,31 @@ def _prepend_recent(existing: str, new_line: str, limit: int = 5) -> str:
 
 
 def _init_helper_values(row: List[str], idx: Dict[str, int]) -> None:
+    # Batting average must be based on dismissals, not total innings.
+    # If the helper column is empty, estimate historical dismissals from:
+    #     current runs / current batting average
+    # Example: 1138 runs / 16.5 average ≈ 69 dismissals.
     if not row[idx[BAT_DISMISSALS_COL]].strip():
         runs = to_float(row[idx["RUNS"]])
         avg = to_float(row[idx["Bat AVG"]])
-        dismissals = int(round(runs / avg)) if avg > 0 else 0
+        dismissals = int(round(runs / avg)) if runs > 0 and avg > 0 else 0
         row[idx[BAT_DISMISSALS_COL]] = str(max(dismissals, 0))
 
+    # Bowling average must be based on total runs conceded / wickets.
+    # If the helper column is empty, estimate historical runs conceded from:
+    #     current bowling average × current wickets
+    # This is more accurate than estimating from economy when both are present.
     if not row[idx[BOWL_RUNS_CONCEDED_COL]].strip():
+        wickets = to_float(row[idx["WICKETS"]])
+        bowl_avg = to_float(row[idx["Bowl AVG"]])
         balls = to_float(row[idx["Balls Bowled"]])
         eco = to_float(row[idx["ECO"]])
-        runs_conceded = int(round(eco * balls / 6)) if balls > 0 and eco > 0 else 0
+        if wickets > 0 and bowl_avg > 0:
+            runs_conceded = int(round(bowl_avg * wickets))
+        elif balls > 0 and eco > 0:
+            runs_conceded = int(round(eco * balls / 6))
+        else:
+            runs_conceded = 0
         row[idx[BOWL_RUNS_CONCEDED_COL]] = str(max(runs_conceded, 0))
 
 
@@ -642,6 +776,7 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
     bowling_updates: List[Dict[str, Any]] = []
     unmatched: List[Dict[str, str]] = []
     new_players: List[Dict[str, str]] = []
+    match_trace: List[Dict[str, str]] = []
     matched_row_ids = set()
     bowling_names = {normalize_name(bw.scorecard_name) for bw in match.bowling}
 
@@ -650,9 +785,22 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
         if not key:
             unmatched.append({"Type": kind, "Scorecard Name": scorecard_name, "Reason": "Blank/invalid scorecard name"})
             return None
-        if key in player_index:
-            row = rows[player_index[key]]
-            matched_row_ids.add(player_index[key])
+
+        row_idx, method, confidence = _best_existing_player_match(scorecard_name, rows, idx, team)
+        if row_idx is not None:
+            row = rows[row_idx]
+            matched_row_ids.add(row_idx)
+            match_trace.append({
+                "Type": kind,
+                "Scorecard Name": _clean_name(scorecard_name),
+                "Action": "Updated existing player",
+                "Matched Player": row[idx["NAME"]],
+                "Team": row[idx["TEAM"]],
+                "Method": method,
+                "Confidence": fmt_number(confidence, 2),
+            })
+            # Cache this exact scorecard spelling so the next batting/bowling/DNB update is exact.
+            player_index[key] = row_idx
             return row
 
         # New scorecard player: automatically add a row to the stats CSV.
@@ -667,6 +815,15 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
             "Added As": row[idx["NAME"]],
             "Team": row[idx["TEAM"]],
             "Reason": f"Not found in CSV during {kind} update",
+        })
+        match_trace.append({
+            "Type": kind,
+            "Scorecard Name": _clean_name(scorecard_name),
+            "Action": "Added new player row",
+            "Matched Player": row[idx["NAME"]],
+            "Team": row[idx["TEAM"]],
+            "Method": "new",
+            "Confidence": "",
         })
         return row
 
@@ -703,9 +860,14 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
             "Scorecard Name": b.scorecard_name,
             "Matched Player": row[idx["NAME"]],
             "Team": row[idx["TEAM"]],
-            "Runs": b.runs,
-            "Balls": b.balls,
+            "Match Runs": b.runs,
+            "Match Balls": b.balls,
             "Not Out": "Yes" if b.not_out else "No",
+            "Updated Innings": row[idx["Innings"]],
+            "Updated Runs": row[idx["RUNS"]],
+            "Updated Balls Faced": row[idx["Balls Faced"]],
+            "Updated Bat AVG": row[idx["Bat AVG"]],
+            "Updated SR": row[idx["SR"]],
             "Highest Scorer": "Yes" if is_highest else "No",
             "POTM": "Yes" if is_potm else "No",
         })
@@ -732,10 +894,14 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
             "Scorecard Name": bw.scorecard_name,
             "Matched Player": row[idx["NAME"]],
             "Team": row[idx["TEAM"]],
-            "Overs": bw.overs,
-            "Runs Conceded": bw.runs_conceded,
-            "Wickets": bw.wickets,
-            "Economy": bw.economy,
+            "Match Overs": bw.overs,
+            "Match Runs Conceded": bw.runs_conceded,
+            "Match Wickets": bw.wickets,
+            "Updated Wickets": row[idx["WICKETS"]],
+            "Updated Balls Bowled": row[idx["Balls Bowled"]],
+            "Updated Bowl AVG": row[idx["Bowl AVG"]],
+            "Updated ECO": row[idx["ECO"]],
+            "Updated BSR": row[idx["BSR"]],
             "POTM": "Yes" if is_potm else "No",
         })
 
@@ -787,6 +953,11 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
         "unmatched": unmatched,
         "new_players": new_players,
         "helper_columns_added": HELPER_COLUMNS,
+        "match_trace": match_trace,
+        "calculation_rules": {
+            "batting": "Innings +1, runs + match runs, balls faced + match balls, dismissals estimated from current runs/current AVG then +1 only if out, AVG = runs/dismissals, SR = runs/balls*100.",
+            "bowling": "Wickets + match wickets, balls bowled + match balls, runs conceded estimated from current bowling AVG*wickets then + match runs conceded, Bowl AVG = runs conceded/wickets, ECO = runs conceded*6/balls, BSR = balls/wickets.",
+        },
         "summary": {
             "match_id": match.match_id,
             "player_of_match": match.player_of_match,
@@ -797,6 +968,7 @@ def update_stats_csv_from_match(stats_csv_bytes: bytes, match: MatchScorecard) -
             "bowling_rows_updated": len(bowling_updates),
             "unmatched_count": len(unmatched),
             "new_players_added": len(new_players),
+            "existing_players_updated": len({t.get("Matched Player") for t in match_trace if t.get("Action") == "Updated existing player"}),
             "changed_players_count": len(changed_players),
         },
     }

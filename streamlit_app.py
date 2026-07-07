@@ -327,7 +327,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         st.markdown("""
         **Your CSV can use the `Stumps Name` column.**  
         Put the exact name used in the STUMPS scorecard PDF there, for example `Kalana Thenu`, `Sasi18`, or `Pasindu Dilshan`.
-        If a scorecard player is not found in the CSV, the app will automatically add a new player row for him.
+        If a scorecard player is not found in the CSV, the app will first try a safe fuzzy match against `Stumps Name` and `NAME`. Only if no safe match exists will it add a new player row.
         """)
 
         scorecard_pdf = st.file_uploader("Upload match scorecard PDF", type=["pdf"], key="scorecard_pdf_upload")
@@ -339,17 +339,26 @@ with tempfile.TemporaryDirectory() as tmpdir:
                 summary = update_result["summary"]
                 st.success("Scorecard parsed and stats CSV update prepared. Please review the tables before using the downloaded CSV.")
 
-                c1, c2, c3, c4, c5 = st.columns(5)
+                c1, c2, c3, c4, c5, c6 = st.columns(6)
                 with c1:
                     st.metric("Match ID", summary.get("match_id") or "-")
                 with c2:
                     st.metric("POTM", summary.get("player_of_match") or "-")
                 with c3:
-                    st.metric("Batting rows updated", summary.get("batting_rows_updated", 0))
+                    st.metric("Batting rows found", summary.get("batting_rows_found", 0))
                 with c4:
-                    st.metric("New players added", summary.get("new_players_added", 0))
+                    st.metric("Bowling rows found", summary.get("bowling_rows_found", 0))
                 with c5:
-                    st.metric("Unmatched names", summary.get("unmatched_count", 0))
+                    st.metric("Existing players updated", summary.get("existing_players_updated", 0))
+                with c6:
+                    st.metric("New players added", summary.get("new_players_added", 0))
+
+                trace_df = pd.DataFrame(update_result.get("match_trace", []))
+                st.markdown("### Player matching + update trace")
+                if trace_df.empty:
+                    st.warning("No scorecard player rows were matched or added. The PDF table was probably not parsed correctly.")
+                else:
+                    st.dataframe(trace_df.drop_duplicates(), use_container_width=True, hide_index=True)
 
                 st.markdown("### Parsed batting updates")
                 bat_df = pd.DataFrame(update_result["batting_updates"])

@@ -166,3 +166,23 @@ The Scorecard Update tab now has an **Apply updated stats to rankings now** butt
 ## v4.4 fix
 
 The Scorecard Update tab now shows a `Stats changed in downloaded CSV` table before download. The download button is disabled if no player stat values changed, and generated filenames include match ID plus a hash so you do not accidentally open an older download.
+
+## v4.5 Scorecard updater fix
+
+This version adds a stronger existing-player matching step for scorecard PDF updates. The app now shows a **Player matching + update trace** table. Existing scorecard names should show **Updated existing player**. Only genuinely missing names should show **Added new player row**.
+
+If a scorecard player name is slightly different from the CSV, the updater checks `Stumps Name`, `NAME`, short name tokens, and a safe fuzzy match before adding a new row. The downloaded updated stats CSV is disabled unless visible player stats changed.
+
+## v4.6 exact stats update notes
+
+The Scorecard Update tab now updates the actual player stats CSV, not only rankings.
+
+For each player found in the uploaded scorecard:
+
+- Batting: innings, runs, balls faced, 30s, 50s, ducks, batting recent form, batting average, strike rate and RAP are updated.
+- Batting average uses estimated dismissals from `current RUNS / current AVG`, then adds one dismissal only if the batter was out in the scorecard.
+- Bowling: wickets, balls bowled, runs conceded helper, 3Fers, 4Fers, bowling recent form, bowling average, economy, BSR and BAP are updated.
+- Bowling runs conceded is estimated from `current Bowl AVG × current WICKETS` when the helper column is not already present.
+- If a scorecard player is not already in the CSV, the app adds him as a new row.
+
+Example: if Yasitha has 74 innings, 1138 runs, 458 balls, 16.5 average and 248.5 SR, then a scorecard innings of 10 off 5 while out becomes 75 innings, 1148 runs, 463 balls. Dismissals are estimated as round(1138 / 16.5) = 69, then +1 because he was out, so new average is 1148 / 70 = 16.4 and new SR is 1148 / 463 × 100 = 247.9.
