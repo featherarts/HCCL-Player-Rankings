@@ -34,7 +34,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.2"
+APP_VERSION = "v5.3"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -513,9 +513,6 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
         "Your latest saved Supabase rankings are shown automatically. Upload a new stats CSV from the sidebar when you want to calculate the next ranking update.",
     )
 
-    st.markdown("<div class='section-title'>🛡️ HCCL Teams</div>", unsafe_allow_html=True)
-    render_team_logo_strip()
-
     st.markdown(
         f"""
         <div class="snapshot-banner">
@@ -728,9 +725,6 @@ render_hero(
     "UPDATE MODE",
     "A stats CSV is loaded. Calculate updated rankings, compare against the last saved snapshot, update stats from scorecard PDFs, and save the new official snapshot.",
 )
-st.markdown("<div class='section-title'>🛡️ HCCL Teams</div>", unsafe_allow_html=True)
-render_team_logo_strip()
-
 st.markdown(
     f"""
     <div class="update-banner">

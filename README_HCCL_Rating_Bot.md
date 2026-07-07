@@ -263,3 +263,51 @@ This version adds a redesigned modern interface and opens directly with the late
 4. Verify rankings and formula audit.
 5. Save the new snapshot to Supabase.
 6. Next time the app opens, that saved snapshot is shown automatically.
+
+## v5.3 Team Logo Upgrade
+
+This version adds official team logo support for the dashboard.
+
+Included logos are stored here:
+
+```text
+assets/team_logos/
+```
+
+Supported team keys:
+
+```text
+AURA
+REAPERS
+DRAGONS
+MATRIX
+TEARZ
+LORDS
+GAMERS
+TITANS
+```
+
+The dashboard uses these logos in:
+
+```text
+- Team logo strip near the top of the dashboard
+- Ranking leader cards
+- Batting/Bowling/All-Rounder ranking tables
+- Weekly report tables
+- Team rankings
+- Player details tables
+```
+
+If you replace a logo later, keep the same file name, for example:
+
+```text
+assets/team_logos/AURA.png
+```
+
+Then commit the updated image to GitHub and redeploy Streamlit.
+
+
+## v5.3 update
+
+- Removed the separate HCCL Teams logo strip from the top dashboard view because team logos already appear cleanly in leader cards and ranking tables.
+- Team logos are still included in ranking leader cards and tables.
