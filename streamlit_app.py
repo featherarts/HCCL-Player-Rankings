@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import html
 import tempfile
@@ -33,7 +34,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.1"
+APP_VERSION = "v5.2"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -157,11 +158,87 @@ st.markdown(
     .stTabs [aria-selected="true"] {background: rgba(255,59,84,0.18) !important; color: #fff !important;}
     button[kind="primary"] {border-radius: 999px !important; font-weight: 900 !important;}
     .stDownloadButton button {border-radius: 999px !important; font-weight: 850 !important;}
+
+    .team-logo-row {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(96px, 1fr));
+      gap: 14px;
+      margin: 10px 0 18px 0;
+    }
+    .team-logo-card {
+      min-height: 124px;
+      padding: 14px 10px 12px 10px;
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.078), rgba(255,255,255,0.030));
+      border: 1px solid rgba(255,255,255,0.13);
+      box-shadow: 0 14px 32px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.08);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .team-logo-card:after {
+      content: "";
+      position: absolute;
+      inset: auto 18px -38px 18px;
+      height: 64px;
+      background: radial-gradient(circle, rgba(255,209,102,0.18), transparent 64%);
+    }
+    .team-logo-card img {
+      width: 74px;
+      height: 74px;
+      object-fit: contain;
+      border-radius: 14px;
+      filter: drop-shadow(0 8px 16px rgba(0,0,0,0.40));
+      position: relative;
+      z-index: 2;
+    }
+    .team-logo-name {
+      position: relative;
+      z-index: 2;
+      margin-top: 8px;
+      color: rgba(255,255,255,0.88);
+      font-size: 12px;
+      font-weight: 950;
+      letter-spacing: 0.04em;
+    }
+    .leader-logo {
+      width: 78px;
+      height: 78px;
+      object-fit: contain;
+      float: right;
+      margin-left: 12px;
+      border-radius: 16px;
+      filter: drop-shadow(0 10px 18px rgba(0,0,0,0.42));
+    }
+    .team-mini-logo {
+      width: 24px;
+      height: 24px;
+      vertical-align: middle;
+      object-fit: contain;
+      border-radius: 6px;
+      margin-right: 7px;
+      filter: drop-shadow(0 4px 7px rgba(0,0,0,0.36));
+    }
+    .team-name-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.10);
+      font-weight: 900;
+      color: rgba(255,255,255,0.88);
+    }
+
     @media (max-width: 768px) {
       .hccl-hero {padding: 24px 20px; border-radius: 22px;}
       .hccl-title {font-size: 32px;}
       .hccl-subtitle {font-size: 15px;}
       .leader-name {font-size: 24px;}
+      .team-logo-row {grid-template-columns: repeat(4, minmax(82px, 1fr)); gap: 10px;}
+      .team-logo-card {min-height: 104px; padding: 10px 8px;}
+      .team-logo-card img {width: 58px; height: 58px;}
     }
     </style>
     """,
@@ -174,6 +251,95 @@ st.markdown(
 
 def esc(value: Any) -> str:
     return html.escape(str(value or ""))
+
+
+TEAM_LOGO_DIR = Path(__file__).parent / "assets" / "team_logos"
+TEAM_LOGO_ORDER = ["AURA", "REAPERS", "DRAGONS", "MATRIX", "TEARZ", "LORDS", "GAMERS", "TITANS"]
+TEAM_LOGO_ALIASES = {
+    "AURA": "AURA", "AURA DYNASTY": "AURA",
+    "REAPERS": "REAPERS", "VELOCITY REAPERS": "REAPERS",
+    "DRAGONS": "DRAGONS", "SUPER FIRE DRAGONS": "DRAGONS",
+    "MATRIX": "MATRIX",
+    "TEARZ": "TEARZ", "SILENT TEARZ": "TEARZ", "TEARS": "TEARZ",
+    "LORDS": "LORDS", "INVINCIBLE LORDS": "LORDS",
+    "GAMERS": "GAMERS", "MIND GAMERS": "GAMERS",
+    "TITANS": "TITANS", "WIZARD TITANS": "TITANS",
+}
+
+_logo_cache: Dict[str, str] = {}
+
+
+def team_key(team: Any) -> str:
+    raw = str(team or "").strip().upper()
+    if not raw:
+        return ""
+    if raw in TEAM_LOGO_ALIASES:
+        return TEAM_LOGO_ALIASES[raw]
+    for key in TEAM_LOGO_ORDER:
+        if key in raw:
+            return key
+    return raw
+
+
+def team_logo_path(team: Any) -> Optional[Path]:
+    key = team_key(team)
+    if not key:
+        return None
+    path = TEAM_LOGO_DIR / f"{key}.png"
+    return path if path.exists() else None
+
+
+def team_logo_data_uri(team: Any) -> str:
+    key = team_key(team)
+    if not key:
+        return ""
+    if key in _logo_cache:
+        return _logo_cache[key]
+    path = team_logo_path(team)
+    if not path:
+        _logo_cache[key] = ""
+        return ""
+    data = base64.b64encode(path.read_bytes()).decode("ascii")
+    uri = f"data:image/png;base64,{data}"
+    _logo_cache[key] = uri
+    return uri
+
+
+def team_logo_img_html(team: Any, class_name: str = "team-mini-logo") -> str:
+    uri = team_logo_data_uri(team)
+    if not uri:
+        return ""
+    return f'<img class="{class_name}" src="{uri}" alt="{esc(team)} logo" />'
+
+
+def team_badge_html(team: Any) -> str:
+    team_text = esc(team or "-")
+    return f'<span class="team-name-pill">{team_logo_img_html(team)}<span>{team_text}</span></span>'
+
+
+def render_team_logo_strip() -> None:
+    cards = []
+    for team in TEAM_LOGO_ORDER:
+        uri = team_logo_data_uri(team)
+        if not uri:
+            continue
+        cards.append(f"""
+          <div class="team-logo-card">
+            <img src="{uri}" alt="{team} logo" />
+            <div class="team-logo-name">{team}</div>
+          </div>
+        """)
+    if cards:
+        st.markdown("<div class='team-logo-row'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+
+def add_logo_column(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "Team" not in df.columns:
+        return df
+    out = df.copy()
+    if "Logo" not in out.columns:
+        out.insert(0, "Logo", out["Team"].map(team_logo_data_uri))
+    return out
 
 
 def render_hero(mode_label: str, subtitle: str) -> None:
@@ -204,11 +370,13 @@ def leader_card(icon: str, title: str, player: Optional[str], team: Optional[str
         player = "No qualified player"
         team = "-"
         rating = "-"
+    logo_html = team_logo_img_html(team, "leader-logo")
     return f"""
     <div class="leader-card">
+      {logo_html}
       <div class="leader-label">{esc(icon)} {esc(title)}</div>
       <div class="leader-name">{esc(player)}</div>
-      <div class="leader-team">{esc(team or '-')}</div>
+      <div class="leader-team">{team_badge_html(team)}</div>
       <span class="rating-chip">{esc(rating)} rating</span>
     </div>
     """
@@ -231,11 +399,13 @@ def show_ranking_table(rows: List[Dict[str, Any]], key_prefix: str) -> pd.DataFr
         st.info("No rows to show.")
         return df
     df = df[display_cols]
+    df = add_logo_column(df)
     st.dataframe(
         df,
         use_container_width=True,
         hide_index=True,
         column_config={
+            "Logo": st.column_config.ImageColumn("", width="small"),
             "Rank": st.column_config.NumberColumn("Rank", width="small"),
             "Movement": st.column_config.TextColumn("Move", width="small"),
             "Rating": st.column_config.NumberColumn("Rating", width="small"),
@@ -343,6 +513,9 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
         "Your latest saved Supabase rankings are shown automatically. Upload a new stats CSV from the sidebar when you want to calculate the next ranking update.",
     )
 
+    st.markdown("<div class='section-title'>🛡️ HCCL Teams</div>", unsafe_allow_html=True)
+    render_team_logo_strip()
+
     st.markdown(
         f"""
         <div class="snapshot-banner">
@@ -401,7 +574,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
                 if sdf.empty:
                     st.caption("No players in this section.")
                 else:
-                    st.dataframe(sdf, use_container_width=True, hide_index=True)
+                    st.dataframe(add_logo_column(sdf), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
     with tabs[4]:
         st.markdown("<div class='section-title'>Team-wise Player Rankings</div>", unsafe_allow_html=True)
         team_df = pd.DataFrame(team_rows)
@@ -415,10 +588,10 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
             filtered = filtered[filtered["Team"] == selected_team]
         if not filtered.empty and selected_category != "All Categories":
             filtered = filtered[filtered["Category"] == selected_category]
-        st.dataframe(filtered, use_container_width=True, hide_index=True)
+        st.dataframe(add_logo_column(filtered), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
     with tabs[5]:
         st.markdown("<div class='section-title'>Player Details</div>", unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+        st.dataframe(add_logo_column(pd.DataFrame(detail_rows)), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
     with tabs[6]:
         st.markdown("<div class='section-title'>Current Benchmarks</div>", unsafe_allow_html=True)
         st.dataframe(benchmark_df, use_container_width=True, hide_index=True)
@@ -555,6 +728,9 @@ render_hero(
     "UPDATE MODE",
     "A stats CSV is loaded. Calculate updated rankings, compare against the last saved snapshot, update stats from scorecard PDFs, and save the new official snapshot.",
 )
+st.markdown("<div class='section-title'>🛡️ HCCL Teams</div>", unsafe_allow_html=True)
+render_team_logo_strip()
+
 st.markdown(
     f"""
     <div class="update-banner">
@@ -671,7 +847,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
                 if section_df.empty:
                     st.caption("No players in this section.")
                 else:
-                    st.dataframe(section_df, use_container_width=True, hide_index=True)
+                    st.dataframe(add_logo_column(section_df), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
 
     with tabs[4]:
         st.markdown("<div class='section-title'>Team-wise Player Rankings</div>", unsafe_allow_html=True)
@@ -686,11 +862,11 @@ with tempfile.TemporaryDirectory() as tmpdir:
             filtered = filtered[filtered["Team"] == selected_team]
         if not filtered.empty and selected_category != "All Categories":
             filtered = filtered[filtered["Category"] == selected_category]
-        st.dataframe(filtered, use_container_width=True, hide_index=True)
+        st.dataframe(add_logo_column(filtered), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
 
     with tabs[5]:
         st.markdown("<div class='section-title'>Player Rating Details</div>", unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+        st.dataframe(add_logo_column(pd.DataFrame(detail_rows)), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
 
     with tabs[6]:
         st.markdown("<div class='section-title'>Current Benchmarks</div>", unsafe_allow_html=True)
