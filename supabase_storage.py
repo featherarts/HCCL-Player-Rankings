@@ -307,3 +307,102 @@ def previous_dict_from_snapshot(snapshot_id: str) -> Dict[str, Dict[str, Previou
 def get_latest_snapshot_id() -> Optional[str]:
     snapshots = list_snapshots(limit=1)
     return snapshots[0]["id"] if snapshots else None
+
+
+def get_snapshot(snapshot_id: str) -> Dict[str, Any]:
+    client = get_supabase_client()
+    if client is None:
+        return {}
+    response = (
+        client.table("hccl_snapshots")
+        .select("id,week_label,snapshot_date,created_at,official_only,notes")
+        .eq("id", snapshot_id)
+        .limit(1)
+        .execute()
+    )
+    return (response.data or [{}])[0] if response.data else {}
+
+
+def get_latest_snapshot() -> Optional[Dict[str, Any]]:
+    snapshots = list_snapshots(limit=1)
+    return snapshots[0] if snapshots else None
+
+
+def get_full_snapshot(snapshot_id: str) -> Dict[str, Any]:
+    """Load a complete saved snapshot for read-only dashboard display.
+
+    This lets the Streamlit app open directly into the last saved rankings
+    before a weekly stats CSV is uploaded.
+    """
+    client = get_supabase_client()
+    if client is None:
+        return {
+            "snapshot": {},
+            "rankings": [],
+            "weekly_report": [],
+            "team_rankings": [],
+            "rating_details": [],
+            "benchmarks": [],
+        }
+
+    snapshot = get_snapshot(snapshot_id)
+
+    rankings = (
+        client.table("hccl_rankings")
+        .select("category,rank,movement,player,team,rating,previous_rank,previous_rating,rating_change,status")
+        .eq("snapshot_id", snapshot_id)
+        .order("category")
+        .order("rank")
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
+    weekly_report = (
+        client.table("hccl_weekly_report")
+        .select("category,report_section,player,team,current_rank,previous_rank,movement,current_rating,previous_rating,rating_change,status")
+        .eq("snapshot_id", snapshot_id)
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
+    team_rankings = (
+        client.table("hccl_team_rankings")
+        .select("team,category,team_rank,overall_rank,movement,player,rating,previous_rating,rating_change,status")
+        .eq("snapshot_id", snapshot_id)
+        .order("team")
+        .order("category")
+        .order("team_rank")
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
+    rating_details = (
+        client.table("hccl_rating_details")
+        .select("player_id,player,team,data")
+        .eq("snapshot_id", snapshot_id)
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
+    benchmarks = (
+        client.table("hccl_benchmarks")
+        .select("benchmark_key,benchmark_value")
+        .eq("snapshot_id", snapshot_id)
+        .limit(1000)
+        .execute()
+        .data
+        or []
+    )
+
+    return {
+        "snapshot": snapshot,
+        "rankings": rankings,
+        "weekly_report": weekly_report,
+        "team_rankings": team_rankings,
+        "rating_details": rating_details,
+        "benchmarks": benchmarks,
+    }

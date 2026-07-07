@@ -243,3 +243,23 @@ Player detail snapshots now save raw batting and bowling recent-5 data into Supa
 - `bowling_recent_points`
 
 This allows the Telegram bot `/expose` command to show inning-by-inning recent performances, not only final recent form scores. After updating to this dashboard version, save a fresh Supabase snapshot before using `/expose`.
+
+## Dashboard v5.1 - Modern UI + Auto Saved Rankings
+
+This version adds a redesigned modern interface and opens directly with the latest saved Supabase ranking snapshot when no new CSV is uploaded.
+
+### New behavior
+
+- When you open the Streamlit site, it automatically shows the latest saved rankings from Supabase.
+- You can still upload a new weekly HCCL Stats CSV from the sidebar to enter update mode.
+- When update mode is active, the previous rankings source defaults to the latest saved Supabase snapshot when available.
+- The UI has redesigned hero section, leader cards, KPI cards, improved tabs, and cleaner saved-ranking view.
+
+### Weekly workflow
+
+1. Open the dashboard and view the latest saved rankings immediately.
+2. Upload the new HCCL Stats CSV only when you want to calculate the next update.
+3. Update stats from scorecard PDF if needed.
+4. Verify rankings and formula audit.
+5. Save the new snapshot to Supabase.
+6. Next time the app opens, that saved snapshot is shown automatically.
