@@ -336,3 +336,12 @@ Then commit the updated image to GitHub and redeploy Streamlit.
 - Streamlit Team Power scores/order should match `/power` in Telegram.
 - Supabase snapshot reads are cached briefly for faster public loading.
 - Team logo images are optimized to much smaller files so ranking tables load faster.
+
+
+---
+
+## Dashboard v5.8 — Hot / Cold Form Tracker
+
+Adds a fast `🔥 Form Tracker` tab for both saved snapshots and update mode. It shows hot overall form, cold overall form, batting form leaders, and bowling form leaders. The feature reuses already-loaded rating details, so it does not add extra Supabase calls while viewing a saved snapshot.
+
+Current stable dashboard: v5.8.

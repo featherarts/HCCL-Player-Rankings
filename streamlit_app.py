@@ -37,7 +37,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.7"
+APP_VERSION = "v5.8"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -820,6 +820,130 @@ def show_team_power_table(power_rows: List[Dict[str, Any]], key: str) -> None:
     )
 
 
+
+# -----------------------------
+# Fast form tracker helpers
+# -----------------------------
+
+def _detail_value(row: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """Get a value from live/saved detail rows using the same forgiving key aliases."""
+    for key in keys:
+        for variant in detail_key_variants(key):
+            if variant in row and row.get(variant) not in (None, ""):
+                return row.get(variant)
+    return default
+
+
+def _has_any_detail_value(row: Dict[str, Any], *keys: str) -> bool:
+    return _detail_value(row, *keys, default=None) is not None
+
+
+def _form_mood(score: float) -> str:
+    if score >= 75:
+        return "🔥 Elite"
+    if score >= 50:
+        return "🟢 Hot"
+    if score >= 25:
+        return "🟡 Steady"
+    if score >= 0:
+        return "🔵 Low"
+    return "🥶 Cold"
+
+
+def compute_form_tracker_rows(detail_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Build hot/cold form rows without extra Supabase calls.
+
+    Eligibility is intentionally simple and fast:
+    100+ career runs OR 10+ career wickets, with at least one saved recent-form value.
+    Overall Form is capped at 100 so it stays viewer-friendly.
+    """
+    rows: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for d in detail_rows:
+        player = str(_detail_value(d, "Player", "player", "NAME", "name", default="") or "").strip()
+        team = str(_detail_value(d, "Team", "team", "TEAM", default="—") or "—").strip()
+        if not player:
+            continue
+        key = re.sub(r"[^a-z0-9]+", "", player.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        runs = _num(_detail_value(d, "runs", "RUNS", "career_runs", "Career Runs"), 0)
+        wickets = _num(_detail_value(d, "wickets", "WICKETS", "career_wickets", "Career Wickets"), 0)
+        if runs < 100 and wickets < 10:
+            continue
+
+        has_bat = _has_any_detail_value(d, "batting_recent_form", "Batting Recent Form", "bat_recent_form")
+        has_bowl = _has_any_detail_value(d, "bowling_recent_form", "Bowling Recent Form", "bowl_recent_form")
+        if not has_bat and not has_bowl:
+            continue
+
+        bat_form = _num(_detail_value(d, "batting_recent_form", "Batting Recent Form", "bat_recent_form"), 0)
+        bowl_form = _num(_detail_value(d, "bowling_recent_form", "Bowling Recent Form", "bowl_recent_form"), 0)
+        raw_overall = bat_form + bowl_form
+        overall = max(-25.0, min(100.0, raw_overall))
+        rows.append({
+            "Player": player,
+            "Team": team,
+            "Overall Form": round(overall, 1),
+            "Batting Form": round(bat_form, 1),
+            "Bowling Form": round(bowl_form, 1),
+            "Career Runs": int(runs) if float(runs).is_integer() else round(runs, 1),
+            "Career Wickets": int(wickets) if float(wickets).is_integer() else round(wickets, 1),
+            "Mood": _form_mood(overall),
+        })
+    return rows
+
+
+def _show_form_df(rows: List[Dict[str, Any]], key: str, sort_col: str = "Overall Form", ascending: bool = False, limit: int = 10) -> None:
+    if not rows:
+        st.info("No saved recent-form data found yet. Save a fresh Supabase snapshot from the dashboard.")
+        return
+    df = pd.DataFrame(rows).sort_values(sort_col, ascending=ascending).head(limit)
+    df = add_logo_column(df)
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Logo": st.column_config.ImageColumn("", width="small"),
+            "Overall Form": st.column_config.NumberColumn("Overall", width="small", format="%.1f"),
+            "Batting Form": st.column_config.NumberColumn("Bat", width="small", format="%.1f"),
+            "Bowling Form": st.column_config.NumberColumn("Bowl", width="small", format="%.1f"),
+        },
+        key=key,
+    )
+
+
+def render_form_tracker(form_rows: List[Dict[str, Any]], key_prefix: str) -> None:
+    st.markdown("<div class='section-title'>🔥 HCCL Form Tracker</div>", unsafe_allow_html=True)
+    st.caption("Fast recent-form view using saved batting and bowling recent-form scores. Eligibility: 100+ career runs or 10+ wickets.")
+    if not form_rows:
+        st.info("No form tracker rows found yet. Save a fresh Supabase snapshot after calculating rankings.")
+        return
+
+    hot_rows = sorted(form_rows, key=lambda r: _num(r.get("Overall Form")), reverse=True)
+    cold_rows = sorted(form_rows, key=lambda r: (_num(r.get("Overall Form")), str(r.get("Player") or "")))
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("🔥 Hottest Player", hot_rows[0].get("Player", "—"), f"{hot_rows[0].get('Overall Form', '—')} form")
+    c2.metric("🥶 Coldest Player", cold_rows[0].get("Player", "—"), f"{cold_rows[0].get('Overall Form', '—')} form")
+    c3.metric("🏏 Best Bat Form", max(form_rows, key=lambda r: _num(r.get("Batting Form"))).get("Player", "—"))
+    c4.metric("🎯 Best Bowl Form", max(form_rows, key=lambda r: _num(r.get("Bowling Form"))).get("Player", "—"))
+
+    f1, f2, f3, f4 = st.tabs(["🔥 Hot Overall", "🥶 Cold Overall", "🏏 Batting Form", "🎯 Bowling Form"])
+    with f1:
+        _show_form_df(form_rows, f"{key_prefix}_hot", "Overall Form", ascending=False, limit=10)
+    with f2:
+        _show_form_df(form_rows, f"{key_prefix}_cold", "Overall Form", ascending=True, limit=10)
+    with f3:
+        bat_rows = [r for r in form_rows if _num(r.get("Career Runs")) >= 100]
+        _show_form_df(bat_rows, f"{key_prefix}_bat", "Batting Form", ascending=False, limit=10)
+    with f4:
+        bowl_rows = [r for r in form_rows if _num(r.get("Career Wickets")) >= 10]
+        _show_form_df(bowl_rows, f"{key_prefix}_bowl", "Bowling Form", ascending=False, limit=10)
+
 def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only: bool) -> None:
     snapshot = snapshot_data.get("snapshot") or {}
     rankings_raw = snapshot_data.get("rankings") or []
@@ -832,6 +956,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     bowling_rows = normalize_saved_rankings(rankings_raw, "Bowling", official_only)
     ar_rows = normalize_saved_rankings(rankings_raw, "All-Rounder", official_only)
     power_rows = compute_team_power_rows(batting_rows, bowling_rows, ar_rows, detail_rows)
+    form_rows = compute_form_tracker_rows(detail_rows)
 
     render_hero(
         "LIVE SAVED SNAPSHOT",
@@ -878,7 +1003,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     st.markdown("<div class='section-subtitle'>Power score uses batting, bowling, all-rounder strength and recent form.</div>", unsafe_allow_html=True)
     render_team_power_cards(power_rows, limit=4)
 
-    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power"])
+    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker"])
     with tabs[0]:
         st.markdown("<div class='section-title'>HCCL Batting Rankings</div>", unsafe_allow_html=True)
         show_ranking_table(batting_rows, "saved_batting")
@@ -933,6 +1058,9 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
         st.markdown("<div class='section-title'>Team Power Rankings</div>", unsafe_allow_html=True)
         st.caption("Formula: 35% batting + 35% bowling + 20% all-round + 10% recent form, scaled out of 100.")
         show_team_power_table(power_rows, "saved_team_power")
+
+    with tabs[9]:
+        render_form_tracker(form_rows, "saved_form")
 
     st.markdown("<div class='section-title'>⬇️ Downloads</div>", unsafe_allow_html=True)
     d1, d2, d3, d4 = st.columns(4)
@@ -1101,6 +1229,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     ar_rows = ranking_dicts(ratings, "all_rounder", official_only=official_only, previous=previous)
     detail_rows = [r.__dict__ for r in ratings]
     power_rows = compute_team_power_rows(batting_rows, bowling_rows, ar_rows, detail_rows)
+    form_rows = compute_form_tracker_rows(detail_rows)
 
     top_bat = batting_rows[0] if batting_rows else None
     top_bowl = bowling_rows[0] if bowling_rows else None
@@ -1156,6 +1285,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "🧾 Scorecard Update",
         "💾 Save / Load",
         "🏆 Team Power",
+        "🔥 Form Tracker",
     ])
 
     with tabs[0]:
@@ -1368,6 +1498,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
         st.markdown("<div class='section-title'>Team Power Rankings</div>", unsafe_allow_html=True)
         st.caption("Formula: 35% batting + 35% bowling + 20% all-round + 10% recent form, scaled out of 100.")
         show_team_power_table(power_rows, "active_team_power")
+
+    with tabs[11]:
+        render_form_tracker(form_rows, "active_form")
 
     rankings_output = tmpdir_path / "HCCL_Rankings_Updated.csv"
     details_output = tmpdir_path / "HCCL_Rating_Details.csv"
