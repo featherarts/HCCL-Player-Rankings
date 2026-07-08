@@ -34,7 +34,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.5"
+APP_VERSION = "v5.6"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -509,14 +509,32 @@ def normalize_saved_team(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def normalize_saved_details(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten saved Supabase rating details into normal dashboard rows.
+
+    Supabase may return the jsonb `data` payload either as a real dict or as a JSON
+    string depending on the client/runtime. Earlier dashboard versions only handled
+    dicts, so saved-snapshot Team Power showed Form Strength as 0 while Telegram
+    correctly used the recent-form values.
+    """
     details = []
     for r in rows:
         base = {"Player ID": r.get("player_id"), "Player": r.get("player"), "Team": r.get("team")}
         data = r.get("data") or {}
+        if isinstance(data, str):
+            try:
+                data = json.loads(data) if data.strip() else {}
+            except Exception:
+                data = {}
         if isinstance(data, dict):
             for k, v in data.items():
                 if k not in base:
                     base[str(k)] = v
+            # Some saved detail payloads use lowercase field names only. Keep the
+            # public dashboard helpers happy by mirroring them to display names.
+            if not base.get("Player"):
+                base["Player"] = data.get("name") or data.get("NAME") or data.get("player") or base.get("Player")
+            if not base.get("Team"):
+                base["Team"] = data.get("team") or data.get("TEAM") or base.get("Team")
         details.append(base)
     return details
 

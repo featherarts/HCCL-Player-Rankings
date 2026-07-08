@@ -313,14 +313,19 @@ Then commit the updated image to GitHub and redeploy Streamlit.
 - Team logos are still included in ranking leader cards and tables.
 
 
-## v5.5 Update - Team Power Rankings
+## v5.6 Update - Team Power Rankings
 
 - Adds Team Power Rankings cards on the main dashboard.
 - Adds a Team Power tab with power score, category strengths, team leaders, top-10 count, and player count.
 - Power score formula: 35% batting strength + 35% bowling strength + 20% all-round strength + 10% recent form, scaled out of 100.
 
 
-## v5.5 Team Power card display fix
+## v5.6 Team Power card display fix
 
 - Fixed the Team Power Rankings cards so Streamlit Cloud does not show raw HTML under the first card.
 - Team power cards now render as separate Streamlit columns while keeping the same logo/card design.
+
+
+## v5.6 Team Power Sync Fix
+- Fixed saved-snapshot Team Power form strength when Supabase returns rating_details.data as JSON text.
+- Dashboard Team Power Rankings now match Telegram `/power` results.
