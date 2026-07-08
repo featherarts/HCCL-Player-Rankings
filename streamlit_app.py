@@ -34,7 +34,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.3"
+APP_VERSION = "v5.4"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -231,6 +231,35 @@ st.markdown(
       color: rgba(255,255,255,0.88);
     }
 
+
+    .power-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(210px, 1fr));
+      gap: 16px;
+      margin: 12px 0 18px 0;
+    }
+    .power-card {
+      padding: 18px;
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at top right, rgba(255,209,102,0.18), transparent 38%),
+        linear-gradient(180deg, rgba(255,255,255,0.085), rgba(255,255,255,0.035));
+      border: 1px solid rgba(255,255,255,0.14);
+      box-shadow: 0 18px 42px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08);
+      min-height: 260px;
+      position: relative;
+      overflow: hidden;
+    }
+    .power-rank {font-size: 13px; font-weight: 950; color: #ffd166; letter-spacing: 0.06em; text-transform: uppercase;}
+    .power-logo {width: 86px; height: 86px; object-fit: contain; float: right; margin-left: 10px; filter: drop-shadow(0 12px 20px rgba(0,0,0,0.45));}
+    .power-team {font-size: 24px; font-weight: 950; color: #fff; margin-top: 8px; line-height: 1.02;}
+    .power-score {font-size: 42px; font-weight: 950; color: #fff; margin: 12px 0 2px 0; line-height: 1;}
+    .power-score-label {font-size: 12px; color: rgba(255,255,255,0.66); font-weight: 850; text-transform: uppercase; letter-spacing: 0.04em;}
+    .power-leaders {margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.10); color: rgba(255,255,255,0.86); font-size: 13px; line-height: 1.75;}
+    .power-chip {display:inline-block; padding: 5px 9px; border-radius: 999px; background: rgba(99,164,255,0.14); border: 1px solid rgba(99,164,255,0.28); color: #dceaff; font-weight: 850; margin-top: 8px; font-size: 12px;}
+    .power-bar {height: 8px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; margin-top: 10px; border: 1px solid rgba(255,255,255,0.08);}
+    .power-fill {height: 100%; border-radius: 999px; background: linear-gradient(90deg, #ff3b54, #ffd166, #35d07f);}
+
     @media (max-width: 768px) {
       .hccl-hero {padding: 24px 20px; border-radius: 22px;}
       .hccl-title {font-size: 32px;}
@@ -239,6 +268,9 @@ st.markdown(
       .team-logo-row {grid-template-columns: repeat(4, minmax(82px, 1fr)); gap: 10px;}
       .team-logo-card {min-height: 104px; padding: 10px 8px;}
       .team-logo-card img {width: 58px; height: 58px;}
+      .power-grid {grid-template-columns: 1fr;}
+      .power-card {min-height: 230px;}
+      .power-score {font-size: 38px;}
     }
     </style>
     """,
@@ -496,6 +528,189 @@ def normalize_saved_benchmarks(rows: List[Dict[str, Any]]) -> pd.DataFrame:
     ])
 
 
+def _num(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(str(value).replace(",", "").strip())
+    except Exception:
+        return default
+
+
+def _first_existing(row: Dict[str, Any], keys: List[str], default: Any = None) -> Any:
+    for key in keys:
+        if key in row and row.get(key) not in (None, ""):
+            return row.get(key)
+    return default
+
+
+def _team_matches(row_team: Any, target_team: Any) -> bool:
+    return team_key(row_team) == team_key(target_team)
+
+
+def _avg_top_ratings(rows: List[Dict[str, Any]], team: str, n: int = 3) -> float:
+    values = [_num(r.get("Rating")) for r in rows if _team_matches(r.get("Team"), team) and _num(r.get("Rating")) > 0]
+    values = sorted(values, reverse=True)[:n]
+    return sum(values) / len(values) if values else 0.0
+
+
+def _best_player_for_team(rows: List[Dict[str, Any]], team: str) -> str:
+    for r in rows:
+        if _team_matches(r.get("Team"), team):
+            return str(r.get("Player") or "—")
+    return "—"
+
+
+def _detail_player_name(row: Dict[str, Any]) -> str:
+    return str(_first_existing(row, ["Player", "NAME", "name", "player"], "") or "")
+
+
+def _detail_team(row: Dict[str, Any]) -> str:
+    return str(_first_existing(row, ["Team", "TEAM", "team"], "") or "")
+
+
+def compute_team_power_rows(
+    batting_rows: List[Dict[str, Any]],
+    bowling_rows: List[Dict[str, Any]],
+    ar_rows: List[Dict[str, Any]],
+    detail_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Create an HCCL team power ranking out of 100.
+
+    Formula:
+      35% batting strength + 35% bowling strength + 20% all-round strength + 10% recent form.
+
+    Rating strengths use the average of each team's top 3 ratings divided by 10.
+    Recent form uses the average of the top 3 combined batting+bowling recent-form scores.
+    Missing components are skipped and weights are normalized so a team is not punished
+    when one ranking category has no eligible players yet.
+    """
+    teams = set()
+    for rows in (batting_rows, bowling_rows, ar_rows):
+        for r in rows:
+            if str(r.get("Team") or "").strip():
+                teams.add(str(r.get("Team")))
+    for r in detail_rows:
+        team = _detail_team(r)
+        if team.strip():
+            teams.add(team)
+
+    out: List[Dict[str, Any]] = []
+    for team in sorted(teams, key=lambda t: team_key(t) or str(t)):
+        bat_avg = _avg_top_ratings(batting_rows, team) / 10.0
+        bowl_avg = _avg_top_ratings(bowling_rows, team) / 10.0
+        ar_avg = _avg_top_ratings(ar_rows, team) / 10.0
+
+        form_scores: List[float] = []
+        player_count = 0
+        for d in detail_rows:
+            if not _team_matches(_detail_team(d), team):
+                continue
+            player_count += 1
+            bat_form = _num(_first_existing(d, ["batting_recent_form", "Bat Recent Form", "Batting Recent Form"]))
+            bowl_form = _num(_first_existing(d, ["bowling_recent_form", "Bowl Recent Form", "Bowling Recent Form"]))
+            combined = max(0.0, min(100.0, bat_form + bowl_form))
+            if combined > 0:
+                form_scores.append(combined)
+        form_avg = sum(sorted(form_scores, reverse=True)[:3]) / len(sorted(form_scores, reverse=True)[:3]) if form_scores else 0.0
+
+        pieces = [(bat_avg, 0.35), (bowl_avg, 0.35), (ar_avg, 0.20), (form_avg, 0.10)]
+        available = [(value, weight) for value, weight in pieces if value > 0]
+        power = sum(value * weight for value, weight in available) / sum(weight for _, weight in available) if available else 0.0
+
+        top10_players = set()
+        for rows in (batting_rows, bowling_rows, ar_rows):
+            for r in rows:
+                if _team_matches(r.get("Team"), team) and int(_num(r.get("Rank"), 9999)) <= 10:
+                    top10_players.add(str(r.get("Player") or ""))
+
+        best_form_player = "—"
+        best_form_score = -1.0
+        for d in detail_rows:
+            if not _team_matches(_detail_team(d), team):
+                continue
+            bat_form = _num(_first_existing(d, ["batting_recent_form", "Bat Recent Form", "Batting Recent Form"]))
+            bowl_form = _num(_first_existing(d, ["bowling_recent_form", "Bowl Recent Form", "Bowling Recent Form"]))
+            combined = bat_form + bowl_form
+            if combined > best_form_score:
+                best_form_score = combined
+                best_form_player = _detail_player_name(d) or "—"
+
+        out.append({
+            "Team": team,
+            "Power Score": round(power, 1),
+            "Batting Strength": round(bat_avg, 1),
+            "Bowling Strength": round(bowl_avg, 1),
+            "All-Round Strength": round(ar_avg, 1),
+            "Form Strength": round(form_avg, 1),
+            "Top Batter": _best_player_for_team(batting_rows, team),
+            "Top Bowler": _best_player_for_team(bowling_rows, team),
+            "Top All-Rounder": _best_player_for_team(ar_rows, team),
+            "Best Form Player": best_form_player,
+            "Top 10 Players": len([p for p in top10_players if p]),
+            "Player Count": player_count,
+        })
+
+    out.sort(key=lambda r: _num(r.get("Power Score")), reverse=True)
+    for i, row in enumerate(out, start=1):
+        row["Power Rank"] = i
+    return out
+
+
+def render_team_power_cards(power_rows: List[Dict[str, Any]], limit: int = 4) -> None:
+    if not power_rows:
+        st.info("No team power data available yet.")
+        return
+    cards = []
+    for row in power_rows[:limit]:
+        team = row.get("Team") or "—"
+        logo = team_logo_img_html(team, "power-logo")
+        score = _num(row.get("Power Score"))
+        width = max(4, min(100, score))
+        cards.append(f"""
+        <div class="power-card">
+          {logo}
+          <div class="power-rank">#{esc(row.get('Power Rank'))} Team Power</div>
+          <div class="power-team">{esc(team)}</div>
+          <div class="power-score">{esc(row.get('Power Score'))}</div>
+          <div class="power-score-label">Power score / 100</div>
+          <div class="power-bar"><div class="power-fill" style="width:{width}%;"></div></div>
+          <div class="power-leaders">
+            🏏 {esc(row.get('Top Batter'))}<br/>
+            🎯 {esc(row.get('Top Bowler'))}<br/>
+            👑 {esc(row.get('Top All-Rounder'))}<br/>
+            🔥 {esc(row.get('Best Form Player'))}
+          </div>
+          <span class="power-chip">Top 10 players: {esc(row.get('Top 10 Players'))}</span>
+        </div>
+        """)
+    st.markdown("<div class='power-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+
+def show_team_power_table(power_rows: List[Dict[str, Any]], key: str) -> None:
+    df = pd.DataFrame(power_rows)
+    if df.empty:
+        st.info("No team power rows to show.")
+        return
+    display_cols = [
+        "Power Rank", "Team", "Power Score", "Batting Strength", "Bowling Strength",
+        "All-Round Strength", "Form Strength", "Top Batter", "Top Bowler",
+        "Top All-Rounder", "Best Form Player", "Top 10 Players", "Player Count",
+    ]
+    df = add_logo_column(df[[c for c in display_cols if c in df.columns]])
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        key=key,
+        column_config={
+            "Logo": st.column_config.ImageColumn("", width="small"),
+            "Power Rank": st.column_config.NumberColumn("Rank", width="small"),
+            "Power Score": st.column_config.NumberColumn("Power", width="small", format="%.1f"),
+        },
+    )
+
+
 def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only: bool) -> None:
     snapshot = snapshot_data.get("snapshot") or {}
     rankings_raw = snapshot_data.get("rankings") or []
@@ -507,6 +722,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     batting_rows = normalize_saved_rankings(rankings_raw, "Batting", official_only)
     bowling_rows = normalize_saved_rankings(rankings_raw, "Bowling", official_only)
     ar_rows = normalize_saved_rankings(rankings_raw, "All-Rounder", official_only)
+    power_rows = compute_team_power_rows(batting_rows, bowling_rows, ar_rows, detail_rows)
 
     render_hero(
         "LIVE SAVED SNAPSHOT",
@@ -549,7 +765,11 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     with l3:
         st.markdown(leader_card("👑", "All-Rounder #1", top_ar.get("Player"), top_ar.get("Team"), top_ar.get("Rating")), unsafe_allow_html=True)
 
-    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots"])
+    st.markdown("<div class='section-title'>🏆 Team Power Rankings</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-subtitle'>Power score uses batting, bowling, all-rounder strength and recent form.</div>", unsafe_allow_html=True)
+    render_team_power_cards(power_rows, limit=4)
+
+    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power"])
     with tabs[0]:
         st.markdown("<div class='section-title'>HCCL Batting Rankings</div>", unsafe_allow_html=True)
         show_ranking_table(batting_rows, "saved_batting")
@@ -599,6 +819,11 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
             st.dataframe(pd.DataFrame(snapshots), use_container_width=True, hide_index=True)
         except Exception as exc:
             st.error(f"Could not load saved snapshots: {exc}")
+
+    with tabs[8]:
+        st.markdown("<div class='section-title'>Team Power Rankings</div>", unsafe_allow_html=True)
+        st.caption("Formula: 35% batting + 35% bowling + 20% all-round + 10% recent form, scaled out of 100.")
+        show_team_power_table(power_rows, "saved_team_power")
 
     st.markdown("<div class='section-title'>⬇️ Downloads</div>", unsafe_allow_html=True)
     d1, d2, d3, d4 = st.columns(4)
@@ -765,6 +990,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
     batting_rows = ranking_dicts(ratings, "batting", official_only=official_only, previous=previous)
     bowling_rows = ranking_dicts(ratings, "bowling", official_only=official_only, previous=previous)
     ar_rows = ranking_dicts(ratings, "all_rounder", official_only=official_only, previous=previous)
+    detail_rows = [r.__dict__ for r in ratings]
+    power_rows = compute_team_power_rows(batting_rows, bowling_rows, ar_rows, detail_rows)
 
     top_bat = batting_rows[0] if batting_rows else None
     top_bowl = bowling_rows[0] if bowling_rows else None
@@ -793,6 +1020,10 @@ with tempfile.TemporaryDirectory() as tmpdir:
     with l3:
         st.markdown(leader_card("👑", "All-Rounder #1", top_ar.get("Player") if top_ar else None, top_ar.get("Team") if top_ar else None, top_ar.get("Rating") if top_ar else None), unsafe_allow_html=True)
 
+    st.markdown("<div class='section-title'>🏆 Team Power Rankings</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-subtitle'>A quick strength score for each HCCL team using top player ratings and recent form.</div>", unsafe_allow_html=True)
+    render_team_power_cards(power_rows, limit=4)
+
     if previous_loaded:
         st.success(f"Previous rankings loaded from: {previous_label}")
     else:
@@ -815,6 +1046,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "🧮 Formula Audit",
         "🧾 Scorecard Update",
         "💾 Save / Load",
+        "🏆 Team Power",
     ])
 
     with tabs[0]:
@@ -1022,6 +1254,11 @@ with tempfile.TemporaryDirectory() as tmpdir:
                 st.dataframe(pd.DataFrame(snapshots), use_container_width=True, hide_index=True)
             except Exception as exc:
                 st.error(f"Could not load saved snapshots: {exc}")
+
+    with tabs[10]:
+        st.markdown("<div class='section-title'>Team Power Rankings</div>", unsafe_allow_html=True)
+        st.caption("Formula: 35% batting + 35% bowling + 20% all-round + 10% recent form, scaled out of 100.")
+        show_team_power_table(power_rows, "active_team_power")
 
     rankings_output = tmpdir_path / "HCCL_Rankings_Updated.csv"
     details_output = tmpdir_path / "HCCL_Rating_Details.csv"

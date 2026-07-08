@@ -311,3 +311,10 @@ Then commit the updated image to GitHub and redeploy Streamlit.
 
 - Removed the separate HCCL Teams logo strip from the top dashboard view because team logos already appear cleanly in leader cards and ranking tables.
 - Team logos are still included in ranking leader cards and tables.
+
+
+## v5.4 Update - Team Power Rankings
+
+- Adds Team Power Rankings cards on the main dashboard.
+- Adds a Team Power tab with power score, category strengths, team leaders, top-10 count, and player count.
+- Power score formula: 35% batting strength + 35% bowling strength + 20% all-round strength + 10% recent form, scaled out of 100.
