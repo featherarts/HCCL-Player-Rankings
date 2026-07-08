@@ -34,7 +34,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.4"
+APP_VERSION = "v5.5"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -657,34 +657,50 @@ def compute_team_power_rows(
     return out
 
 
+def team_power_card_html(row: Dict[str, Any]) -> str:
+    """Return one team power card.
+
+    Each card is rendered in its own Streamlit column. This avoids Streamlit/Markdown
+    occasionally showing the remaining cards as raw HTML when many large base64 logos
+    are inserted inside one big HTML block.
+    """
+    team = row.get("Team") or "—"
+    logo = team_logo_img_html(team, "power-logo")
+    score = _num(row.get("Power Score"))
+    width = max(4, min(100, score))
+    return f"""
+    <div class="power-card">
+      {logo}
+      <div class="power-rank">#{esc(row.get('Power Rank'))} Team Power</div>
+      <div class="power-team">{esc(team)}</div>
+      <div class="power-score">{esc(row.get('Power Score'))}</div>
+      <div class="power-score-label">Power score / 100</div>
+      <div class="power-bar"><div class="power-fill" style="width:{width}%;"></div></div>
+      <div class="power-leaders">
+        🏏 {esc(row.get('Top Batter'))}<br/>
+        🎯 {esc(row.get('Top Bowler'))}<br/>
+        👑 {esc(row.get('Top All-Rounder'))}<br/>
+        🔥 {esc(row.get('Best Form Player'))}
+      </div>
+      <span class="power-chip">Top 10 players: {esc(row.get('Top 10 Players'))}</span>
+    </div>
+    """
+
+
 def render_team_power_cards(power_rows: List[Dict[str, Any]], limit: int = 4) -> None:
     if not power_rows:
         st.info("No team power data available yet.")
         return
-    cards = []
-    for row in power_rows[:limit]:
-        team = row.get("Team") or "—"
-        logo = team_logo_img_html(team, "power-logo")
-        score = _num(row.get("Power Score"))
-        width = max(4, min(100, score))
-        cards.append(f"""
-        <div class="power-card">
-          {logo}
-          <div class="power-rank">#{esc(row.get('Power Rank'))} Team Power</div>
-          <div class="power-team">{esc(team)}</div>
-          <div class="power-score">{esc(row.get('Power Score'))}</div>
-          <div class="power-score-label">Power score / 100</div>
-          <div class="power-bar"><div class="power-fill" style="width:{width}%;"></div></div>
-          <div class="power-leaders">
-            🏏 {esc(row.get('Top Batter'))}<br/>
-            🎯 {esc(row.get('Top Bowler'))}<br/>
-            👑 {esc(row.get('Top All-Rounder'))}<br/>
-            🔥 {esc(row.get('Best Form Player'))}
-          </div>
-          <span class="power-chip">Top 10 players: {esc(row.get('Top 10 Players'))}</span>
-        </div>
-        """)
-    st.markdown("<div class='power-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+    rows = power_rows[:limit]
+    # Render as separate Markdown blocks instead of one giant HTML string.
+    # This keeps all cards visible on Streamlit Cloud and prevents raw HTML leakage.
+    for start in range(0, len(rows), 4):
+        chunk = rows[start:start + 4]
+        cols = st.columns(len(chunk))
+        for col, row in zip(cols, chunk):
+            with col:
+                st.markdown(team_power_card_html(row), unsafe_allow_html=True)
 
 
 def show_team_power_table(power_rows: List[Dict[str, Any]], key: str) -> None:
