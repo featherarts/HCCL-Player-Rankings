@@ -37,7 +37,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v6.0"
+APP_VERSION = "v6.1"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -328,6 +328,29 @@ st.markdown(
     .dna-score span {font-size:12px; color: rgba(255,255,255,0.62); font-weight: 850;}
 
 
+    .climb-card {
+      padding: 22px;
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 86% 10%, rgba(77,255,176,0.16), transparent 34%),
+        radial-gradient(circle at 8% 12%, rgba(255,199,44,0.15), transparent 30%),
+        linear-gradient(180deg, rgba(255,255,255,0.090), rgba(255,255,255,0.036));
+      border: 1px solid rgba(255,255,255,0.15);
+      box-shadow: 0 18px 46px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.08);
+      overflow: hidden;
+      position: relative;
+    }
+    .climb-title {font-size: 30px; font-weight: 950; color:#fff; line-height:1.05; margin-bottom:8px;}
+    .climb-sub {font-size:14px; color:rgba(255,255,255,0.72); font-weight:850; margin-bottom:14px;}
+    .climb-target {display:inline-block; padding: 8px 12px; border-radius: 999px; background: rgba(77,255,176,0.14); color:#dffff2; border:1px solid rgba(77,255,176,0.34); font-weight: 950; margin: 3px 4px 12px 0;}
+    .climb-score-grid {display:grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap:10px; margin:14px 0;}
+    .climb-score {padding:12px; border-radius:16px; background: rgba(255,255,255,0.055); border:1px solid rgba(255,255,255,0.10);}
+    .climb-score b {font-size:22px; color:#fff; display:block;}
+    .climb-score span {font-size:12px; color:rgba(255,255,255,0.62); font-weight:850;}
+    .climb-line {font-size:15px; color:rgba(255,255,255,0.88); margin:9px 0; line-height:1.45;}
+    .climb-plan {margin-top:10px; padding:13px 14px; border-radius:16px; background:rgba(255,255,255,0.055); border:1px solid rgba(255,255,255,0.10); color:rgba(255,255,255,0.90); font-size:14px; line-height:1.55;}
+
+
     @media (max-width: 768px) {
       .hccl-hero {padding: 24px 20px; border-radius: 22px;}
       .hccl-title {font-size: 32px;}
@@ -341,6 +364,8 @@ st.markdown(
       .power-score {font-size: 38px;}
       .dna-score-grid {grid-template-columns: 1fr;}
       .dna-title {font-size: 24px;}
+      .climb-score-grid {grid-template-columns: 1fr;}
+      .climb-title {font-size: 24px;}
     }
     </style>
     """,
@@ -1466,6 +1491,196 @@ def render_player_dna(detail_rows: List[Dict[str, Any]], batting_rows: List[Dict
     with st.expander("Show DNA summary table"):
         st.dataframe(summary_df, use_container_width=True, hide_index=True, key=f"{key_prefix}_dna_summary")
 
+# -----------------------------
+# How to Climb helpers — no extra Supabase calls; uses already-loaded rows.
+# -----------------------------
+
+def _category_rating_key(category: str) -> Tuple[str, str, str]:
+    if category == "Batting":
+        return ("batting_rating", "Batting Rating", "Bat Rating")
+    if category == "Bowling":
+        return ("bowling_rating", "Bowling Rating", "Bowl Rating")
+    return ("all_rounder_rating", "All-Rounder Rating", "All Rounder Rating")
+
+
+def _format_gap(value: float) -> str:
+    value = max(0.0, float(value or 0))
+    return str(int(round(value))) if abs(value - round(value)) < 0.05 else f"{value:.1f}"
+
+
+def _category_sort_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return sorted(rows, key=lambda r: (_rank_int(r.get("Rank")), -_num(r.get("Rating")), str(r.get("Player") or "")))
+
+
+def _target_above(category_rows: List[Dict[str, Any]], current_row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    cur_rank = _rank_int(current_row.get("Rank"))
+    cur_rating = _num(current_row.get("Rating"))
+    candidates = []
+    for row in category_rows:
+        if _player_key(row.get("Player")) == _player_key(current_row.get("Player")):
+            continue
+        rank = _rank_int(row.get("Rank"))
+        rating = _num(row.get("Rating"))
+        if rank < cur_rank or rating > cur_rating:
+            candidates.append(row)
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda r: (_rank_int(r.get("Rank")), -_num(r.get("Rating"))))[-1] if False else sorted(candidates, key=lambda r: (abs(_rank_int(r.get("Rank")) - cur_rank), max(0, _num(r.get("Rating")) - cur_rating)))[0]
+
+
+def _climb_action_plan(category: str, gap: float, details: Dict[str, Any], rows_by_category: Dict[str, Dict[str, Any]]) -> List[str]:
+    bat_rating = _rating_from_row_or_detail(rows_by_category.get("Batting"), details, "batting_rating", "Batting Rating")
+    bowl_rating = _rating_from_row_or_detail(rows_by_category.get("Bowling"), details, "bowling_rating", "Bowling Rating")
+    bat_form = _num(_detail_value(details, "batting_recent_form", "Batting Recent Form", "bat_recent_form"), 0)
+    bowl_form = _num(_detail_value(details, "bowling_recent_form", "Bowling Recent Form", "bowl_recent_form"), 0)
+    runs = _num(_detail_value(details, "runs", "RUNS", "career_runs", "Career Runs"), 0)
+    wickets = _num(_detail_value(details, "wickets", "WICKETS", "career_wickets", "Career Wickets"), 0)
+
+    plan: List[str] = []
+    if category == "Batting":
+        if bat_form < 15:
+            plan.append("🏏 Score 20+ runs next match to repair batting recent form.")
+        elif gap <= 10:
+            plan.append("🏏 One solid 10–15 run innings can be enough to push upward.")
+        else:
+            plan.append("🏏 Target 25+ runs or a highest-scorer/POTM type innings.")
+        if runs < 300:
+            plan.append("📈 Keep adding career runs because career share still has room to grow.")
+        plan.append("⚡ Higher strike rate helps, but avoid a low-score dismissal.")
+    elif category == "Bowling":
+        if bowl_form < 25:
+            plan.append("🎯 Take 2+ wickets next match to boost bowling recent form quickly.")
+        elif gap <= 10:
+            plan.append("🎯 A 1–2 wicket spell with good economy can move him up.")
+        else:
+            plan.append("🎯 Target a match-winning 2–3 wicket spell.")
+        if wickets < 30:
+            plan.append("📈 More career wickets will improve the career bowling base.")
+        plan.append("🛡️ Keep economy under control; cheap overs protect the rating.")
+    else:
+        if bat_rating < bowl_rating - 80 or bat_form < bowl_form - 20:
+            plan.append("🏏 Batting is the quickest side to improve for all-round climb.")
+            plan.append("🔥 Aim for 15–20 runs plus at least one wicket.")
+        elif bowl_rating < bat_rating - 80 or bowl_form < bat_form - 20:
+            plan.append("🎯 Bowling is the quickest side to improve for all-round climb.")
+            plan.append("🔥 Aim for 1–2 wickets plus useful batting runs.")
+        else:
+            plan.append("⚔️ Balanced contribution is key: 15+ runs and 1+ wicket.")
+            plan.append("🏆 A POTM-level match can create the biggest jump.")
+        if runs < 100:
+            plan.append("🏏 Cross 100 career runs to strengthen all-round eligibility.")
+        if wickets < 10:
+            plan.append("🎯 Cross 10 career wickets to strengthen all-round eligibility.")
+
+    if gap > 25:
+        plan.append("⏳ This is a multi-match climb, so consistency matters more than one lucky game.")
+    return plan[:4]
+
+
+def build_climb_card(player: str, team: str, details: Dict[str, Any], rows_by_category: Dict[str, Dict[str, Any]], category_rows_map: Dict[str, List[Dict[str, Any]]], category: str) -> Dict[str, Any]:
+    current_row = rows_by_category.get(category)
+    current_rating = _rating_from_row_or_detail(current_row, details, *_category_rating_key(category))
+    current_rank = _rank_int((current_row or {}).get("Rank"))
+    target = _target_above(category_rows_map.get(category, []), current_row or {"Player": player, "Rank": current_rank, "Rating": current_rating}) if current_row else None
+    target_rating = _num((target or {}).get("Rating"), 0)
+    gap = max(0.0, target_rating - current_rating)
+    if target and gap < 0.1:
+        gap = 0.1
+    plan = _climb_action_plan(category, gap, details, rows_by_category)
+    bat_form = _num(_detail_value(details, "batting_recent_form", "Batting Recent Form", "bat_recent_form"), 0)
+    bowl_form = _num(_detail_value(details, "bowling_recent_form", "Bowling Recent Form", "bowl_recent_form"), 0)
+    return {
+        "Player": player,
+        "Team": team,
+        "Category": category,
+        "Current Rank": current_rank if current_rank < 9999 else "—",
+        "Current Rating": round(current_rating, 1),
+        "Target Player": (target or {}).get("Player") or "Already #1 / no target above",
+        "Target Rank": _rank_int((target or {}).get("Rank")) if target else "—",
+        "Target Rating": round(target_rating, 1) if target else "—",
+        "Gap": _format_gap(gap) if target else "0",
+        "Bat Form": round(bat_form, 1),
+        "Bowl Form": round(bowl_form, 1),
+        "Plan": plan,
+        "Target Row": target,
+    }
+
+
+def render_how_to_climb(detail_rows: List[Dict[str, Any]], batting_rows: List[Dict[str, Any]], bowling_rows: List[Dict[str, Any]], ar_rows: List[Dict[str, Any]], key_prefix: str) -> None:
+    st.markdown("<div class='section-title'>🪜 How to Climb</div>", unsafe_allow_html=True)
+    st.caption("Fast target view using already-loaded rankings and detail data. No extra Supabase calls while viewing.")
+    if not detail_rows:
+        st.info("No player detail data available yet.")
+        return
+
+    rows_by_player = _rows_by_player_and_category(batting_rows, bowling_rows, ar_rows)
+    category_rows_map = {
+        "Batting": _category_sort_rows(batting_rows),
+        "Bowling": _category_sort_rows(bowling_rows),
+        "All-Rounder": _category_sort_rows(ar_rows),
+    }
+
+    detail_by_key: Dict[str, Dict[str, Any]] = {}
+    player_options: List[Tuple[str, str, str]] = []
+    for d in detail_rows:
+        player = str(_detail_value(d, "Player", "player", "NAME", "name", default="") or "").strip()
+        if not player:
+            continue
+        key = _player_key(player)
+        if key and key not in detail_by_key:
+            detail_by_key[key] = d
+            team = str(_detail_value(d, "Team", "team", "TEAM", default="—") or "—")
+            player_options.append((player, team, key))
+    if not player_options:
+        st.info("No player names found in details.")
+        return
+
+    player_options.sort(key=lambda x: x[0].lower())
+    labels = [f"{name} ({team})" for name, team, _ in player_options]
+    selected_label = st.selectbox("Select player", labels, key=f"{key_prefix}_climb_player")
+    player, team, key = player_options[labels.index(selected_label)]
+    details = detail_by_key[key]
+    rows_by_category = rows_by_player.get(key, {})
+    available_categories = [c for c in ["All-Rounder", "Batting", "Bowling"] if c in rows_by_category]
+    if not available_categories:
+        available_categories = ["Batting", "Bowling", "All-Rounder"]
+    default_category = available_categories[0]
+    category = st.selectbox("Target ranking category", available_categories, index=available_categories.index(default_category), key=f"{key_prefix}_climb_category")
+    climb = build_climb_card(player, team, details, rows_by_category, category_rows_map, category)
+    target_label = f"#{climb['Target Rank']} {climb['Target Player']}" if climb.get("Target Row") else "Already at the top"
+    plan_html = "<br/>".join(esc(x) for x in climb["Plan"])
+
+    st.markdown(
+        f"""
+        <div class="climb-card">
+          {team_logo_img_html(team, 'power-logo')}
+          <div class="climb-title">🪜 {esc(player)}</div>
+          <div class="climb-sub">{team_badge_html(team)} • HCCL How to Climb</div>
+          <div class="climb-target">🎯 Target: {esc(category)} ranking</div>
+          <div class="climb-score-grid">
+            <div class="climb-score"><b>#{esc(climb['Current Rank'])}</b><span>Current Rank</span></div>
+            <div class="climb-score"><b>{esc(climb['Current Rating'])}</b><span>Current Rating</span></div>
+            <div class="climb-score"><b>+{esc(climb['Gap'])}</b><span>Rating Gap</span></div>
+          </div>
+          <div class="climb-line"><b>👀 Next target:</b> {esc(target_label)} • {esc(climb['Target Rating'])} pts</div>
+          <div class="climb-line"><b>🔥 Current form:</b> Bat {esc(climb['Bat Form'])} | Bowl {esc(climb['Bowl Form'])}</div>
+          <div class="climb-plan"><b>Best ways to climb</b><br/>{plan_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    quick = pd.DataFrame([
+        {"Metric": "Category", "Value": climb["Category"]},
+        {"Metric": "Current rank", "Value": climb["Current Rank"]},
+        {"Metric": "Current rating", "Value": climb["Current Rating"]},
+        {"Metric": "Next target", "Value": climb["Target Player"]},
+        {"Metric": "Rating gap", "Value": f"+{climb['Gap']}"},
+    ])
+    with st.expander("Show climb summary table"):
+        st.dataframe(quick, use_container_width=True, hide_index=True, key=f"{key_prefix}_climb_summary")
+
+
 def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only: bool) -> None:
     snapshot = snapshot_data.get("snapshot") or {}
     rankings_raw = snapshot_data.get("rankings") or []
@@ -1526,7 +1741,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     st.markdown("<div class='section-subtitle'>Power score uses batting, bowling, all-rounder strength and recent form.</div>", unsafe_allow_html=True)
     render_team_power_cards(power_rows, limit=4)
 
-    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker", "🎖️ Badges", "🧬 Player DNA"])
+    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker", "🎖️ Badges", "🧬 Player DNA", "🪜 How to Climb"])
     with tabs[0]:
         st.markdown("<div class='section-title'>HCCL Batting Rankings</div>", unsafe_allow_html=True)
         show_ranking_table(batting_rows, "saved_batting")
@@ -1591,6 +1806,9 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
 
     with tabs[11]:
         render_player_dna(detail_rows, batting_rows, bowling_rows, ar_rows, "saved")
+
+    with tabs[12]:
+        render_how_to_climb(detail_rows, batting_rows, bowling_rows, ar_rows, "saved")
 
     st.markdown("<div class='section-title'>⬇️ Downloads</div>", unsafe_allow_html=True)
     d1, d2, d3, d4 = st.columns(4)
@@ -1819,6 +2037,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "🔥 Form Tracker",
         "🎖️ Badges",
         "🧬 Player DNA",
+        "🪜 How to Climb",
     ])
 
     with tabs[0]:
@@ -2041,6 +2260,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     with tabs[13]:
         render_player_dna(detail_rows, batting_rows, bowling_rows, ar_rows, "active")
+
+    with tabs[14]:
+        render_how_to_climb(detail_rows, batting_rows, bowling_rows, ar_rows, "active")
 
     rankings_output = tmpdir_path / "HCCL_Rankings_Updated.csv"
     details_output = tmpdir_path / "HCCL_Rating_Details.csv"

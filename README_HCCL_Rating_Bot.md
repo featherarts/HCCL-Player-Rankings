@@ -1,15 +1,15 @@
-# HCCL Rankings Dashboard v6.0 — Player DNA Card
+# HCCL Rankings Dashboard v6.1 — How to Climb
 
-This version keeps v5.9 Player Badges and adds a fast 🧬 Player DNA Card tab.
+This version keeps v6.0 Player DNA and adds a fast 🪜 How to Climb tab.
 
 New dashboard features:
-- New 🧬 Player DNA tab
-- DNA card shows player type, batting DNA, bowling DNA, form DNA, main strength, and improve-next area
+- New 🪜 How to Climb tab
+- Select any player and target Batting, Bowling, or All-Rounder ranking
+- Shows current rank, next player to overtake, rating gap, current form, and a simple action plan
 - Uses already-loaded ranking/detail data only, so no extra Supabase calls while viewing
-- Keeps v5.7 speed optimizations, v5.8 Form Tracker, and v5.9 Player Badges
+- Keeps v5.7 speed optimizations, v5.8 Form Tracker, v5.9 Badges, and v6.0 Player DNA
 
 ---
-
 
 # HCCL Rankings Dashboard v3
 
