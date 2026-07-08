@@ -37,7 +37,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.8"
+APP_VERSION = "v5.9"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -275,6 +275,36 @@ st.markdown(
     .power-bar {height: 8px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; margin-top: 10px; border: 1px solid rgba(255,255,255,0.08);}
     .power-fill {height: 100%; border-radius: 999px; background: linear-gradient(90deg, #ff3b54, #ffd166, #35d07f);}
 
+
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 10px;
+      margin: 2px 4px 2px 0;
+      border-radius: 999px;
+      background: rgba(255, 209, 102, 0.13);
+      border: 1px solid rgba(255, 209, 102, 0.28);
+      color: #fff1c4;
+      font-weight: 900;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .badge-card {
+      min-height: 154px;
+      padding: 16px;
+      border-radius: 20px;
+      background:
+        radial-gradient(circle at top right, rgba(255,209,102,0.14), transparent 42%),
+        linear-gradient(180deg, rgba(255,255,255,0.080), rgba(255,255,255,0.035));
+      border: 1px solid rgba(255,255,255,0.13);
+      box-shadow: 0 14px 34px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    .badge-card-title {font-size: 20px; font-weight: 950; color:#fff; line-height:1.1; margin-bottom:6px;}
+    .badge-card-team {font-size: 13px; color: rgba(255,255,255,0.70); font-weight:850; margin-bottom: 10px;}
+    .badge-card-line {font-size: 13px; color: rgba(255,255,255,0.80); margin-top: 8px;}
+
     @media (max-width: 768px) {
       .hccl-hero {padding: 24px 20px; border-radius: 22px;}
       .hccl-title {font-size: 32px;}
@@ -381,11 +411,14 @@ def render_team_logo_strip() -> None:
 
 
 def add_logo_column(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or "Team" not in df.columns:
+    if df.empty:
+        return df
+    team_col = "Team" if "Team" in df.columns else ("team" if "team" in df.columns else None)
+    if not team_col:
         return df
     out = df.copy()
     if "Logo" not in out.columns:
-        out.insert(0, "Logo", out["Team"].map(team_logo_data_uri))
+        out.insert(0, "Logo", out[team_col].map(team_logo_data_uri))
     return out
 
 
@@ -944,6 +977,263 @@ def render_form_tracker(form_rows: List[Dict[str, Any]], key_prefix: str) -> Non
         bowl_rows = [r for r in form_rows if _num(r.get("Career Wickets")) >= 10]
         _show_form_df(bowl_rows, f"{key_prefix}_bowl", "Bowling Form", ascending=False, limit=10)
 
+
+
+# -----------------------------
+# Player badges / titles helpers
+# -----------------------------
+
+BADGE_PRIORITY = [
+    "👑 Elite Batter",
+    "🎯 Strike Bowler",
+    "⚔️ All-Round Warrior",
+    "🔥 In-Form Beast",
+    "💣 Run Machine",
+    "🧨 Wicket Hunter",
+    "🏏 Batting Star",
+    "🛡️ Bowling Asset",
+    "🚀 Fast Climber",
+    "📉 Form Drop",
+    "🥶 Cold Streak",
+]
+
+
+def _player_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _rank_int(value: Any, default: int = 9999) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(str(value).replace("#", "").strip()))
+    except Exception:
+        return default
+
+
+def _rating_from_row_or_detail(row: Optional[Dict[str, Any]], details: Dict[str, Any], *keys: str) -> float:
+    if row and row.get("Rating") not in (None, ""):
+        return _num(row.get("Rating"))
+    return _num(_detail_value(details, *keys), 0)
+
+
+def _best_category_label(rows_by_category: Dict[str, Dict[str, Any]]) -> str:
+    best = (9999, "—")
+    for category, row in rows_by_category.items():
+        rank = _rank_int(row.get("Rank"))
+        if rank < best[0]:
+            best = (rank, category)
+    return best[1]
+
+
+def _badge_role(badges: List[str]) -> str:
+    badge_text = " ".join(badges)
+    if "All-Round" in badge_text:
+        return "⚔️ All-round core"
+    if "Elite Batter" in badge_text or "Batting Star" in badge_text or "Run Machine" in badge_text:
+        return "🏏 Batting weapon"
+    if "Strike Bowler" in badge_text or "Bowling Asset" in badge_text or "Wicket Hunter" in badge_text:
+        return "🎯 Bowling weapon"
+    if "In-Form" in badge_text:
+        return "🔥 Form player"
+    if "Cold" in badge_text:
+        return "🥶 Needs comeback"
+    return "🧱 Squad contributor"
+
+
+def compute_player_badges(details: Dict[str, Any], rows_by_category: Dict[str, Dict[str, Any]], max_badges: int = 4) -> List[str]:
+    """Calculate HCCL-style badges using already-loaded rating/detail data.
+
+    No extra database calls are made. The thresholds are deliberately stable and simple
+    so Streamlit and Telegram can display the same badges quickly.
+    """
+    bat_row = rows_by_category.get("Batting")
+    bowl_row = rows_by_category.get("Bowling")
+    ar_row = rows_by_category.get("All-Rounder")
+
+    bat_rank = _rank_int((bat_row or {}).get("Rank"))
+    bowl_rank = _rank_int((bowl_row or {}).get("Rank"))
+    ar_rank = _rank_int((ar_row or {}).get("Rank"))
+
+    bat_rating = _rating_from_row_or_detail(bat_row, details, "batting_rating", "Batting Rating")
+    bowl_rating = _rating_from_row_or_detail(bowl_row, details, "bowling_rating", "Bowling Rating")
+    ar_rating = _rating_from_row_or_detail(ar_row, details, "all_rounder_rating", "All-Rounder Rating", "All Rounder Rating")
+
+    runs = _num(_detail_value(details, "runs", "RUNS", "career_runs", "Career Runs"), 0)
+    wickets = _num(_detail_value(details, "wickets", "WICKETS", "career_wickets", "Career Wickets"), 0)
+    bat_form = _num(_detail_value(details, "batting_recent_form", "Batting Recent Form", "bat_recent_form"), 0)
+    bowl_form = _num(_detail_value(details, "bowling_recent_form", "Bowling Recent Form", "bowl_recent_form"), 0)
+    overall_form = bat_form + bowl_form
+
+    changes = []
+    for row in [bat_row, bowl_row, ar_row]:
+        if row:
+            changes.append(_num(row.get("Rating Change"), 0))
+    best_change = max(changes) if changes else 0
+    worst_change = min(changes) if changes else 0
+
+    badges: List[str] = []
+    if bat_rank <= 3 or bat_rating >= 750:
+        badges.append("👑 Elite Batter")
+    if bowl_rank <= 3 or bowl_rating >= 750:
+        badges.append("🎯 Strike Bowler")
+    if ar_rank <= 5 or ar_rating >= 650:
+        badges.append("⚔️ All-Round Warrior")
+    if overall_form >= 60:
+        badges.append("🔥 In-Form Beast")
+    if runs >= 1000:
+        badges.append("💣 Run Machine")
+    if wickets >= 75:
+        badges.append("🧨 Wicket Hunter")
+    if bat_rating >= 650 and "👑 Elite Batter" not in badges:
+        badges.append("🏏 Batting Star")
+    if bowl_rating >= 650 and "🎯 Strike Bowler" not in badges:
+        badges.append("🛡️ Bowling Asset")
+    if best_change >= 30:
+        badges.append("🚀 Fast Climber")
+    if worst_change <= -30:
+        badges.append("📉 Form Drop")
+    if (runs >= 100 or wickets >= 10) and overall_form <= 10:
+        badges.append("🥶 Cold Streak")
+
+    ordered = [badge for badge in BADGE_PRIORITY if badge in badges]
+    return ordered[:max_badges]
+
+
+def _rows_by_player_and_category(batting_rows: List[Dict[str, Any]], bowling_rows: List[Dict[str, Any]], ar_rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    mapping: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for category, rows in [("Batting", batting_rows), ("Bowling", bowling_rows), ("All-Rounder", ar_rows)]:
+        for row in rows:
+            key = _player_key(row.get("Player"))
+            if key:
+                mapping.setdefault(key, {})[category] = row
+    return mapping
+
+
+def compute_badge_rows(
+    detail_rows: List[Dict[str, Any]],
+    batting_rows: List[Dict[str, Any]],
+    bowling_rows: List[Dict[str, Any]],
+    ar_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    rows_by_player = _rows_by_player_and_category(batting_rows, bowling_rows, ar_rows)
+    out: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for d in detail_rows:
+        player = str(_detail_value(d, "Player", "player", "NAME", "name", default="") or "").strip()
+        team = str(_detail_value(d, "Team", "team", "TEAM", default="—") or "—").strip()
+        if not player:
+            continue
+        key = _player_key(player)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows_by_category = rows_by_player.get(key, {})
+        badges = compute_player_badges(d, rows_by_category, max_badges=4)
+        if not badges:
+            badges = ["🧱 Squad Contributor"]
+        out.append({
+            "Player": player,
+            "Team": team,
+            "Badges": " | ".join(badges),
+            "Role": _badge_role(badges),
+            "Best Discipline": _best_category_label(rows_by_category),
+            "Badge Count": len([b for b in badges if b != "🧱 Squad Contributor"]),
+            "Runs": _num(_detail_value(d, "runs", "RUNS", "career_runs", "Career Runs"), 0),
+            "Wickets": _num(_detail_value(d, "wickets", "WICKETS", "career_wickets", "Career Wickets"), 0),
+            "Batting Form": round(_num(_detail_value(d, "batting_recent_form", "Batting Recent Form", "bat_recent_form"), 0), 1),
+            "Bowling Form": round(_num(_detail_value(d, "bowling_recent_form", "Bowling Recent Form", "bowl_recent_form"), 0), 1),
+        })
+    out.sort(key=lambda r: (int(r.get("Badge Count") or 0), _num(r.get("Batting Form")) + _num(r.get("Bowling Form"))), reverse=True)
+    return out
+
+
+def add_badges_column(df: pd.DataFrame, badge_rows: List[Dict[str, Any]]) -> pd.DataFrame:
+    if df.empty:
+        return df
+    name_col = "Player" if "Player" in df.columns else ("name" if "name" in df.columns else ("NAME" if "NAME" in df.columns else None))
+    if not name_col:
+        return df
+    badge_map = {_player_key(r.get("Player")): r.get("Badges") for r in badge_rows}
+    out = df.copy()
+    if "Badges" not in out.columns:
+        insert_at = min(3, len(out.columns))
+        out.insert(insert_at, "Badges", out[name_col].map(lambda x: badge_map.get(_player_key(x), "")))
+    return out
+
+
+def _badge_pill_html(text: str) -> str:
+    return "".join(f'<span class="badge-pill">{esc(part.strip())}</span>' for part in str(text or "").split("|") if part.strip())
+
+
+def render_badge_cards(badge_rows: List[Dict[str, Any]], limit: int = 4) -> None:
+    rows = badge_rows[:limit]
+    if not rows:
+        st.info("No badge data available yet.")
+        return
+    cols = st.columns(len(rows))
+    for col, row in zip(cols, rows):
+        with col:
+            st.markdown(
+                f"""
+                <div class="badge-card">
+                  {team_logo_img_html(row.get('Team'), 'leader-logo')}
+                  <div class="badge-card-title">{esc(row.get('Player'))}</div>
+                  <div class="badge-card-team">{team_badge_html(row.get('Team'))}</div>
+                  <div>{_badge_pill_html(row.get('Badges'))}</div>
+                  <div class="badge-card-line">{esc(row.get('Role'))} • Best: {esc(row.get('Best Discipline'))}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_badge_tracker(badge_rows: List[Dict[str, Any]], key_prefix: str) -> None:
+    st.markdown("<div class='section-title'>🎖️ Player Badges / Titles</div>", unsafe_allow_html=True)
+    st.caption("Badges are calculated instantly from already-loaded rankings, career stats, movement, and recent form. No extra database calls.")
+    if not badge_rows:
+        st.info("No badge data available yet.")
+        return
+
+    total_badges = sum(int(r.get("Badge Count") or 0) for r in badge_rows)
+    elite_count = sum(1 for r in badge_rows if "Elite Batter" in str(r.get("Badges")))
+    warrior_count = sum(1 for r in badge_rows if "All-Round Warrior" in str(r.get("Badges")))
+    hot_count = sum(1 for r in badge_rows if "In-Form Beast" in str(r.get("Badges")))
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("🎖️ Badges Awarded", total_badges)
+    c2.metric("👑 Elite Batters", elite_count)
+    c3.metric("⚔️ All-Round Warriors", warrior_count)
+    c4.metric("🔥 In-Form Beasts", hot_count)
+
+    render_badge_cards(badge_rows, limit=4)
+
+    badge_options = ["All Badges"] + sorted({part.strip() for r in badge_rows for part in str(r.get("Badges") or "").split("|") if part.strip()})
+    teams = sorted({str(r.get("Team") or "—") for r in badge_rows})
+    a, b = st.columns(2)
+    selected_badge = a.selectbox("Filter by badge", badge_options, key=f"{key_prefix}_badge_filter")
+    selected_team = b.selectbox("Filter by team", ["All Teams"] + teams, key=f"{key_prefix}_team_filter")
+
+    filtered = badge_rows
+    if selected_badge != "All Badges":
+        filtered = [r for r in filtered if selected_badge in str(r.get("Badges") or "")]
+    if selected_team != "All Teams":
+        filtered = [r for r in filtered if str(r.get("Team") or "—") == selected_team]
+
+    df = pd.DataFrame(filtered)
+    df = add_logo_column(df)
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Logo": st.column_config.ImageColumn("", width="small"),
+            "Badge Count": st.column_config.NumberColumn("Badge Count", width="small"),
+            "Batting Form": st.column_config.NumberColumn("Bat Form", width="small", format="%.1f"),
+            "Bowling Form": st.column_config.NumberColumn("Bowl Form", width="small", format="%.1f"),
+        },
+        key=f"{key_prefix}_badge_table",
+    )
+
 def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only: bool) -> None:
     snapshot = snapshot_data.get("snapshot") or {}
     rankings_raw = snapshot_data.get("rankings") or []
@@ -957,6 +1247,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     ar_rows = normalize_saved_rankings(rankings_raw, "All-Rounder", official_only)
     power_rows = compute_team_power_rows(batting_rows, bowling_rows, ar_rows, detail_rows)
     form_rows = compute_form_tracker_rows(detail_rows)
+    badge_rows = compute_badge_rows(detail_rows, batting_rows, bowling_rows, ar_rows)
 
     render_hero(
         "LIVE SAVED SNAPSHOT",
@@ -1003,7 +1294,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     st.markdown("<div class='section-subtitle'>Power score uses batting, bowling, all-rounder strength and recent form.</div>", unsafe_allow_html=True)
     render_team_power_cards(power_rows, limit=4)
 
-    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker"])
+    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker", "🎖️ Badges"])
     with tabs[0]:
         st.markdown("<div class='section-title'>HCCL Batting Rankings</div>", unsafe_allow_html=True)
         show_ranking_table(batting_rows, "saved_batting")
@@ -1042,7 +1333,8 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
         st.dataframe(add_logo_column(filtered), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
     with tabs[5]:
         st.markdown("<div class='section-title'>Player Details</div>", unsafe_allow_html=True)
-        st.dataframe(add_logo_column(pd.DataFrame(detail_rows)), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
+        details_df = add_badges_column(pd.DataFrame(detail_rows), badge_rows)
+        st.dataframe(add_logo_column(details_df), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
     with tabs[6]:
         st.markdown("<div class='section-title'>Current Benchmarks</div>", unsafe_allow_html=True)
         st.dataframe(benchmark_df, use_container_width=True, hide_index=True)
@@ -1061,6 +1353,9 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
 
     with tabs[9]:
         render_form_tracker(form_rows, "saved_form")
+
+    with tabs[10]:
+        render_badge_tracker(badge_rows, "saved_badges")
 
     st.markdown("<div class='section-title'>⬇️ Downloads</div>", unsafe_allow_html=True)
     d1, d2, d3, d4 = st.columns(4)
@@ -1230,6 +1525,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     detail_rows = [r.__dict__ for r in ratings]
     power_rows = compute_team_power_rows(batting_rows, bowling_rows, ar_rows, detail_rows)
     form_rows = compute_form_tracker_rows(detail_rows)
+    badge_rows = compute_badge_rows(detail_rows, batting_rows, bowling_rows, ar_rows)
 
     top_bat = batting_rows[0] if batting_rows else None
     top_bowl = bowling_rows[0] if bowling_rows else None
@@ -1286,6 +1582,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "💾 Save / Load",
         "🏆 Team Power",
         "🔥 Form Tracker",
+        "🎖️ Badges",
     ])
 
     with tabs[0]:
@@ -1331,7 +1628,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     with tabs[5]:
         st.markdown("<div class='section-title'>Player Rating Details</div>", unsafe_allow_html=True)
-        st.dataframe(add_logo_column(pd.DataFrame(detail_rows)), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
+        details_df = add_badges_column(pd.DataFrame(detail_rows), badge_rows)
+        st.dataframe(add_logo_column(details_df), use_container_width=True, hide_index=True, column_config={"Logo": st.column_config.ImageColumn("", width="small")})
 
     with tabs[6]:
         st.markdown("<div class='section-title'>Current Benchmarks</div>", unsafe_allow_html=True)
@@ -1501,6 +1799,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     with tabs[11]:
         render_form_tracker(form_rows, "active_form")
+
+    with tabs[12]:
+        render_badge_tracker(badge_rows, "active_badges")
 
     rankings_output = tmpdir_path / "HCCL_Rankings_Updated.csv"
     details_output = tmpdir_path / "HCCL_Rating_Details.csv"

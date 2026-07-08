@@ -1,3 +1,15 @@
+# HCCL Rankings Dashboard v5.9 — Player Badges / Titles
+
+This version keeps v5.8 Hot/Cold Form Tracker and adds a fast Player Badges system.
+
+New dashboard features:
+- New 🎖️ Badges tab
+- Badges added to Player Details
+- Badge summary cards and filters
+- Uses already-loaded ranking/detail data, so no extra Supabase calls while viewing
+
+---
+
 # HCCL Rankings Dashboard v3
 
 This version adds **Supabase save/load** to the HCCL Rankings Dashboard.
