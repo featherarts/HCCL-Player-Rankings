@@ -37,7 +37,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.9"
+APP_VERSION = "v6.0"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -305,6 +305,29 @@ st.markdown(
     .badge-card-team {font-size: 13px; color: rgba(255,255,255,0.70); font-weight:850; margin-bottom: 10px;}
     .badge-card-line {font-size: 13px; color: rgba(255,255,255,0.80); margin-top: 8px;}
 
+    .dna-card {
+      padding: 22px;
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 86% 12%, rgba(99,164,255,0.18), transparent 34%),
+        radial-gradient(circle at 8% 12%, rgba(255,59,84,0.15), transparent 30%),
+        linear-gradient(180deg, rgba(255,255,255,0.090), rgba(255,255,255,0.036));
+      border: 1px solid rgba(255,255,255,0.15);
+      box-shadow: 0 18px 46px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.08);
+      overflow: hidden;
+      position: relative;
+    }
+    .dna-title {font-size: 30px; font-weight: 950; color: #fff; line-height:1.05; margin-bottom: 8px;}
+    .dna-sub {font-size: 14px; color: rgba(255,255,255,0.72); font-weight:850; margin-bottom: 14px;}
+    .dna-role {display:inline-block; padding: 8px 12px; border-radius: 999px; background: rgba(99,164,255,0.16); color:#dceaff; border:1px solid rgba(99,164,255,0.34); font-weight: 950; margin: 3px 4px 10px 0;}
+    .dna-line {font-size: 15px; color: rgba(255,255,255,0.88); margin: 9px 0; line-height: 1.45;}
+    .dna-label {color: rgba(255,255,255,0.60); font-size: 12px; font-weight: 950; letter-spacing:0.04em; text-transform: uppercase; margin-top: 14px;}
+    .dna-score-grid {display:grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 10px; margin: 14px 0;}
+    .dna-score {padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.10);}
+    .dna-score b {font-size: 22px; color:#fff; display:block;}
+    .dna-score span {font-size:12px; color: rgba(255,255,255,0.62); font-weight: 850;}
+
+
     @media (max-width: 768px) {
       .hccl-hero {padding: 24px 20px; border-radius: 22px;}
       .hccl-title {font-size: 32px;}
@@ -316,6 +339,8 @@ st.markdown(
       .power-grid {grid-template-columns: 1fr;}
       .power-card {min-height: 230px;}
       .power-score {font-size: 38px;}
+      .dna-score-grid {grid-template-columns: 1fr;}
+      .dna-title {font-size: 24px;}
     }
     </style>
     """,
@@ -1234,6 +1259,213 @@ def render_badge_tracker(badge_rows: List[Dict[str, Any]], key_prefix: str) -> N
         key=f"{key_prefix}_badge_table",
     )
 
+
+
+# -----------------------------
+# Player DNA helpers — computed from already-loaded rows, so it stays fast.
+# -----------------------------
+
+def _dna_rating(row: Optional[Dict[str, Any]], details: Dict[str, Any], *keys: str) -> float:
+    return _rating_from_row_or_detail(row, details, *keys)
+
+
+def _dna_rank(row: Optional[Dict[str, Any]]) -> int:
+    return _rank_int((row or {}).get("Rank"))
+
+
+def _dna_type(bat_rating: float, bowl_rating: float, ar_rating: float, bat_rank: int, bowl_rank: int, ar_rank: int, runs: float, wickets: float) -> str:
+    if ar_rating >= 650 or ar_rank <= 5:
+        return "⚔️ Elite All-Rounder"
+    if ar_rating >= 520 or (runs >= 100 and wickets >= 10 and abs(bat_rating - bowl_rating) <= 90):
+        return "🛡️ Balanced All-Rounder"
+    if bat_rating >= bowl_rating + 90 or (bat_rank <= bowl_rank and bat_rating >= 600):
+        return "🏏 Batting Specialist"
+    if bowl_rating >= bat_rating + 90 or (bowl_rank <= bat_rank and bowl_rating >= 600):
+        return "🎯 Bowling Specialist"
+    if runs >= 100 or wickets >= 10:
+        return "🧱 Squad Contributor"
+    return "🌱 Developing Player"
+
+
+def _batting_dna(bat_rating: float, bat_form: float, runs: float, bat_rank: int) -> str:
+    if bat_rank <= 3 or bat_rating >= 750:
+        return "👑 Elite run creator"
+    if runs >= 1000:
+        return "💣 Proven run machine"
+    if bat_form >= 35:
+        return "🔥 In-form batting threat"
+    if bat_rating >= 600:
+        return "🏏 Reliable scoring option"
+    if runs >= 100:
+        return "🧱 Support batter"
+    return "🌱 Still building batting impact"
+
+
+def _bowling_dna(bowl_rating: float, bowl_form: float, wickets: float, bowl_rank: int) -> str:
+    if bowl_rank <= 3 or bowl_rating >= 750:
+        return "🎯 Strike bowling weapon"
+    if wickets >= 75:
+        return "🧨 Proven wicket hunter"
+    if bowl_form >= 50:
+        return "🔥 Hot wicket-taking form"
+    if bowl_rating >= 600:
+        return "🛡️ Strong bowling asset"
+    if wickets >= 10:
+        return "🎯 Useful bowling option"
+    return "🌱 Limited bowling impact"
+
+
+def _form_dna(overall_form: float, bat_form: float, bowl_form: float) -> str:
+    if overall_form >= 75:
+        return "🔥 Red-hot form"
+    if overall_form >= 45:
+        return "🟢 Strong current form"
+    if overall_form >= 20:
+        return "🟡 Steady form"
+    if overall_form >= 0:
+        return "🔵 Quiet recent form"
+    return "🥶 Cold spell"
+
+
+def _dna_strength(bat_rating: float, bowl_rating: float, ar_rating: float, bat_form: float, bowl_form: float, runs: float, wickets: float) -> str:
+    options = [
+        (bat_rating, "🏏 Batting rating"),
+        (bowl_rating, "🎯 Bowling rating"),
+        (ar_rating, "⚔️ All-round value"),
+        (bat_form * 8, "🔥 Batting form"),
+        (bowl_form * 6, "🔥 Bowling form"),
+        (min(runs / 2, 700), "💣 Career runs"),
+        (min(wickets * 8, 700), "🧨 Career wickets"),
+    ]
+    return max(options, key=lambda x: x[0])[1]
+
+
+def _dna_improve(bat_rating: float, bowl_rating: float, bat_form: float, bowl_form: float, runs: float, wickets: float) -> str:
+    if runs >= 100 and bat_form <= 10:
+        return "🏏 Batting recent form"
+    if wickets >= 10 and bowl_form <= 10:
+        return "🎯 Bowling recent form"
+    if bat_rating < bowl_rating - 100:
+        return "🏏 Batting contribution"
+    if bowl_rating < bat_rating - 100:
+        return "🎯 Bowling contribution"
+    if runs < 100:
+        return "🏏 More career runs"
+    if wickets < 10:
+        return "🎯 More wickets"
+    return "📈 Keep consistency high"
+
+
+def build_player_dna(details: Dict[str, Any], rows_by_category: Dict[str, Dict[str, Any]], badges: Optional[List[str]] = None) -> Dict[str, Any]:
+    bat_row = rows_by_category.get("Batting")
+    bowl_row = rows_by_category.get("Bowling")
+    ar_row = rows_by_category.get("All-Rounder")
+    bat_rating = _dna_rating(bat_row, details, "batting_rating", "Batting Rating")
+    bowl_rating = _dna_rating(bowl_row, details, "bowling_rating", "Bowling Rating")
+    ar_rating = _dna_rating(ar_row, details, "all_rounder_rating", "All-Rounder Rating", "All Rounder Rating")
+    bat_rank = _dna_rank(bat_row)
+    bowl_rank = _dna_rank(bowl_row)
+    ar_rank = _dna_rank(ar_row)
+    runs = _num(_detail_value(details, "runs", "RUNS", "career_runs", "Career Runs"), 0)
+    wickets = _num(_detail_value(details, "wickets", "WICKETS", "career_wickets", "Career Wickets"), 0)
+    innings = _num(_detail_value(details, "innings", "INNINGS", "career_innings", "Career Innings"), 0)
+    bat_form = _num(_detail_value(details, "batting_recent_form", "Batting Recent Form", "bat_recent_form"), 0)
+    bowl_form = _num(_detail_value(details, "bowling_recent_form", "Bowling Recent Form", "bowl_recent_form"), 0)
+    overall_form = max(-25.0, min(100.0, bat_form + bowl_form))
+    badge_list = badges if badges is not None else compute_player_badges(details, rows_by_category, max_badges=4)
+    if not badge_list:
+        badge_list = ["🧱 Squad Contributor"]
+    return {
+        "Type": _dna_type(bat_rating, bowl_rating, ar_rating, bat_rank, bowl_rank, ar_rank, runs, wickets),
+        "Batting DNA": _batting_dna(bat_rating, bat_form, runs, bat_rank),
+        "Bowling DNA": _bowling_dna(bowl_rating, bowl_form, wickets, bowl_rank),
+        "Form DNA": _form_dna(overall_form, bat_form, bowl_form),
+        "Main Strength": _dna_strength(bat_rating, bowl_rating, ar_rating, bat_form, bowl_form, runs, wickets),
+        "Improve Area": _dna_improve(bat_rating, bowl_rating, bat_form, bowl_form, runs, wickets),
+        "Bat Rating": round(bat_rating, 1),
+        "Bowl Rating": round(bowl_rating, 1),
+        "AR Rating": round(ar_rating, 1),
+        "Bat Form": round(bat_form, 1),
+        "Bowl Form": round(bowl_form, 1),
+        "Overall Form": round(overall_form, 1),
+        "Runs": int(runs) if float(runs).is_integer() else round(runs, 1),
+        "Wickets": int(wickets) if float(wickets).is_integer() else round(wickets, 1),
+        "Innings": int(innings) if float(innings).is_integer() else round(innings, 1),
+        "Badges": " | ".join(badge_list),
+    }
+
+
+def render_player_dna(detail_rows: List[Dict[str, Any]], batting_rows: List[Dict[str, Any]], bowling_rows: List[Dict[str, Any]], ar_rows: List[Dict[str, Any]], key_prefix: str) -> None:
+    st.markdown("<div class='section-title'>🧬 Player DNA Card</div>", unsafe_allow_html=True)
+    st.caption("Player DNA is generated instantly from already-loaded rankings, badges, career stats, and recent form. No extra Supabase calls.")
+    if not detail_rows:
+        st.info("No player detail data available yet.")
+        return
+
+    rows_by_player = _rows_by_player_and_category(batting_rows, bowling_rows, ar_rows)
+    player_options = []
+    detail_by_key: Dict[str, Dict[str, Any]] = {}
+    for d in detail_rows:
+        player = str(_detail_value(d, "Player", "player", "NAME", "name", default="") or "").strip()
+        if not player:
+            continue
+        key = _player_key(player)
+        if key and key not in detail_by_key:
+            detail_by_key[key] = d
+            team = str(_detail_value(d, "Team", "team", "TEAM", default="—") or "—")
+            player_options.append((player, team, key))
+    if not player_options:
+        st.info("No player names found in details.")
+        return
+
+    player_options.sort(key=lambda x: x[0].lower())
+    labels = [f"{name} ({team})" for name, team, _ in player_options]
+    selected_label = st.selectbox("Select player", labels, key=f"{key_prefix}_dna_player")
+    selected_idx = labels.index(selected_label)
+    player, team, key = player_options[selected_idx]
+    details = detail_by_key[key]
+    rows_by_category = rows_by_player.get(key, {})
+    badges = compute_player_badges(details, rows_by_category, max_badges=4)
+    if not badges:
+        badges = ["🧱 Squad Contributor"]
+    dna = build_player_dna(details, rows_by_category, badges)
+
+    st.markdown(
+        f"""
+        <div class="dna-card">
+          {team_logo_img_html(team, 'power-logo')}
+          <div class="dna-title">🧬 {esc(player)}</div>
+          <div class="dna-sub">{team_badge_html(team)} • HCCL Player DNA</div>
+          <div class="dna-role">{esc(dna['Type'])}</div>
+          <div>{_badge_pill_html(dna['Badges'])}</div>
+          <div class="dna-score-grid">
+            <div class="dna-score"><b>{esc(dna['Bat Rating'])}</b><span>🏏 Bat Rating</span></div>
+            <div class="dna-score"><b>{esc(dna['Bowl Rating'])}</b><span>🎯 Bowl Rating</span></div>
+            <div class="dna-score"><b>{esc(dna['AR Rating'])}</b><span>👑 AR Rating</span></div>
+          </div>
+          <div class="dna-label">DNA Profile</div>
+          <div class="dna-line"><b>🏏 Batting:</b> {esc(dna['Batting DNA'])}</div>
+          <div class="dna-line"><b>🎯 Bowling:</b> {esc(dna['Bowling DNA'])}</div>
+          <div class="dna-line"><b>🔥 Form:</b> {esc(dna['Form DNA'])} • Bat {esc(dna['Bat Form'])} | Bowl {esc(dna['Bowl Form'])}</div>
+          <div class="dna-line"><b>💎 Main strength:</b> {esc(dna['Main Strength'])}</div>
+          <div class="dna-line"><b>🪜 Improve next:</b> {esc(dna['Improve Area'])}</div>
+          <div class="dna-line"><b>📌 Career:</b> {esc(dna['Innings'])} innings • {esc(dna['Runs'])} runs • {esc(dna['Wickets'])} wickets</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    summary_df = pd.DataFrame([
+        {"Metric": "Player Type", "Value": dna["Type"]},
+        {"Metric": "Batting DNA", "Value": dna["Batting DNA"]},
+        {"Metric": "Bowling DNA", "Value": dna["Bowling DNA"]},
+        {"Metric": "Form DNA", "Value": dna["Form DNA"]},
+        {"Metric": "Main Strength", "Value": dna["Main Strength"]},
+        {"Metric": "Improve Area", "Value": dna["Improve Area"]},
+    ])
+    with st.expander("Show DNA summary table"):
+        st.dataframe(summary_df, use_container_width=True, hide_index=True, key=f"{key_prefix}_dna_summary")
+
 def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only: bool) -> None:
     snapshot = snapshot_data.get("snapshot") or {}
     rankings_raw = snapshot_data.get("rankings") or []
@@ -1294,7 +1526,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     st.markdown("<div class='section-subtitle'>Power score uses batting, bowling, all-rounder strength and recent form.</div>", unsafe_allow_html=True)
     render_team_power_cards(power_rows, limit=4)
 
-    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker", "🎖️ Badges"])
+    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker", "🎖️ Badges", "🧬 Player DNA"])
     with tabs[0]:
         st.markdown("<div class='section-title'>HCCL Batting Rankings</div>", unsafe_allow_html=True)
         show_ranking_table(batting_rows, "saved_batting")
@@ -1356,6 +1588,9 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
 
     with tabs[10]:
         render_badge_tracker(badge_rows, "saved_badges")
+
+    with tabs[11]:
+        render_player_dna(detail_rows, batting_rows, bowling_rows, ar_rows, "saved")
 
     st.markdown("<div class='section-title'>⬇️ Downloads</div>", unsafe_allow_html=True)
     d1, d2, d3, d4 = st.columns(4)
@@ -1583,6 +1818,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "🏆 Team Power",
         "🔥 Form Tracker",
         "🎖️ Badges",
+        "🧬 Player DNA",
     ])
 
     with tabs[0]:
@@ -1802,6 +2038,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     with tabs[12]:
         render_badge_tracker(badge_rows, "active_badges")
+
+    with tabs[13]:
+        render_player_dna(detail_rows, batting_rows, bowling_rows, ar_rows, "active")
 
     rankings_output = tmpdir_path / "HCCL_Rankings_Updated.csv"
     details_output = tmpdir_path / "HCCL_Rating_Details.csv"

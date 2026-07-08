@@ -1,14 +1,15 @@
-# HCCL Rankings Dashboard v5.9 — Player Badges / Titles
+# HCCL Rankings Dashboard v6.0 — Player DNA Card
 
-This version keeps v5.8 Hot/Cold Form Tracker and adds a fast Player Badges system.
+This version keeps v5.9 Player Badges and adds a fast 🧬 Player DNA Card tab.
 
 New dashboard features:
-- New 🎖️ Badges tab
-- Badges added to Player Details
-- Badge summary cards and filters
-- Uses already-loaded ranking/detail data, so no extra Supabase calls while viewing
+- New 🧬 Player DNA tab
+- DNA card shows player type, batting DNA, bowling DNA, form DNA, main strength, and improve-next area
+- Uses already-loaded ranking/detail data only, so no extra Supabase calls while viewing
+- Keeps v5.7 speed optimizations, v5.8 Form Tracker, and v5.9 Player Badges
 
 ---
+
 
 # HCCL Rankings Dashboard v3
 
