@@ -329,3 +329,10 @@ Then commit the updated image to GitHub and redeploy Streamlit.
 ## v5.6 Team Power Sync Fix
 - Fixed saved-snapshot Team Power form strength when Supabase returns rating_details.data as JSON text.
 - Dashboard Team Power Rankings now match Telegram `/power` results.
+
+## v5.7 Update - Team Power Match + Speed Fix
+
+- Team Power recent-form parsing now mirrors the Telegram bot parser exactly.
+- Streamlit Team Power scores/order should match `/power` in Telegram.
+- Supabase snapshot reads are cached briefly for faster public loading.
+- Team logo images are optimized to much smaller files so ranking tables load faster.

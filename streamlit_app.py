@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ast
 import base64
 import hashlib
 import html
+import json
+import re
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -34,9 +37,21 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v5.6"
+APP_VERSION = "v5.7"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
+
+# Cache Supabase reads for faster viewer loading.
+# Clear automatically within 60 seconds, so new saved rankings still appear soon after saving.
+@st.cache_data(ttl=60, show_spinner=False)
+def cached_list_snapshots(limit: int = 30) -> List[Dict[str, Any]]:
+    return list_snapshots(limit=limit)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def cached_get_full_snapshot(snapshot_id: str) -> Dict[str, Any]:
+    return get_full_snapshot(snapshot_id)
+
 
 # -----------------------------
 # Modern UI skin
@@ -508,36 +523,96 @@ def normalize_saved_team(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ]
 
 
+def detail_key_variants(key: Any) -> List[str]:
+    """Return forgiving key variants for saved rating-detail dictionaries.
+
+    The Telegram bot already uses this style of normalization. Keeping the dashboard
+    identical prevents Team Power differences between Streamlit and Telegram.
+    """
+    raw = str(key or "").strip()
+    compact = re.sub(r"[^a-z0-9]+", "_", raw.lower()).strip("_")
+    nospace = re.sub(r"[^a-z0-9]+", "", raw.lower())
+    variants = [raw, raw.lower(), compact, nospace]
+    alias_map = {
+        "allrounderqualified": "all_rounder_qualified",
+        "allrounderrating": "all_rounder_rating",
+        "battingrecentform": "batting_recent_form",
+        "bowlingrecentform": "bowling_recent_form",
+        "battingcareerscore": "batting_career_score",
+        "bowlingcareerscore": "bowling_career_score",
+        "achievementscorebatting": "achievement_score_batting",
+        "achievementscorebowling": "achievement_score_bowling",
+        "experiencescore": "experience_score",
+        "playerid": "player_id",
+    }
+    if nospace in alias_map:
+        variants.append(alias_map[nospace])
+    return [v for v in dict.fromkeys(variants) if v]
+
+
+def flatten_detail_dict(value: Any) -> Dict[str, Any]:
+    """Parse/flatten rating detail data from dict, JSON string, or Python-dict string."""
+    if value is None or value == "":
+        return {}
+
+    parsed = value
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            try:
+                parsed = ast.literal_eval(text)
+            except Exception:
+                parsed = {}
+
+    if not isinstance(parsed, dict):
+        return {}
+
+    merged: Dict[str, Any] = {}
+    for k, v in parsed.items():
+        if isinstance(v, dict) and str(k).strip().lower() in {"data", "details", "rating_details"}:
+            merged.update(v)
+        else:
+            merged[k] = v
+
+    normalized: Dict[str, Any] = {}
+    for k, v in merged.items():
+        for variant in detail_key_variants(k):
+            normalized.setdefault(variant, v)
+    return normalized
+
+
+def detail_get(details: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        for variant in detail_key_variants(key):
+            value = details.get(variant)
+            if value is not None and value != "":
+                return value
+    return default
+
+
 def normalize_saved_details(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Flatten saved Supabase rating details into normal dashboard rows.
 
-    Supabase may return the jsonb `data` payload either as a real dict or as a JSON
-    string depending on the client/runtime. Earlier dashboard versions only handled
-    dicts, so saved-snapshot Team Power showed Form Strength as 0 while Telegram
-    correctly used the recent-form values.
+    This now mirrors the Telegram bot parsing logic exactly. That fixes the mismatch
+    where Telegram /power could read recent form but Streamlit Team Power sometimes
+    showed Form Strength as 0.
     """
     details = []
     for r in rows:
-        base = {"Player ID": r.get("player_id"), "Player": r.get("player"), "Team": r.get("team")}
-        data = r.get("data") or {}
-        if isinstance(data, str):
-            try:
-                data = json.loads(data) if data.strip() else {}
-            except Exception:
-                data = {}
-        if isinstance(data, dict):
-            for k, v in data.items():
-                if k not in base:
-                    base[str(k)] = v
-            # Some saved detail payloads use lowercase field names only. Keep the
-            # public dashboard helpers happy by mirroring them to display names.
-            if not base.get("Player"):
-                base["Player"] = data.get("name") or data.get("NAME") or data.get("player") or base.get("Player")
-            if not base.get("Team"):
-                base["Team"] = data.get("team") or data.get("TEAM") or base.get("Team")
-        details.append(base)
-    return details
+        merged: Dict[str, Any] = {}
+        # Top-level Supabase fields: player_id/player/team
+        merged.update(flatten_detail_dict({k: v for k, v in r.items() if k != "data"}))
+        # Saved JSONB payload.
+        merged.update(flatten_detail_dict(r.get("data")))
 
+        # Friendly display aliases used by dashboard tables/helpers.
+        merged["Player ID"] = detail_get(merged, "player_id", default=r.get("player_id"))
+        merged["Player"] = detail_get(merged, "player", "name", "NAME", default=r.get("player"))
+        merged["Team"] = detail_get(merged, "team", "TEAM", default=r.get("team"))
+        details.append(merged)
+    return details
 
 def normalize_saved_benchmarks(rows: List[Dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame([
@@ -849,7 +924,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     with tabs[7]:
         st.markdown("<div class='section-title'>Saved Snapshots</div>", unsafe_allow_html=True)
         try:
-            snapshots = list_snapshots(limit=30)
+            snapshots = cached_list_snapshots(limit=30)
             st.dataframe(pd.DataFrame(snapshots), use_container_width=True, hide_index=True)
         except Exception as exc:
             st.error(f"Could not load saved snapshots: {exc}")
@@ -884,7 +959,7 @@ with st.sidebar:
     live_snapshot_id: Optional[str] = None
     if db_ready:
         try:
-            saved_snapshots_for_live = list_snapshots(limit=30)
+            saved_snapshots_for_live = cached_list_snapshots(limit=30)
         except Exception as exc:
             st.error(f"Could not load saved snapshots: {exc}")
             saved_snapshots_for_live = []
@@ -965,7 +1040,7 @@ if active_stats_csv_bytes is None and uploaded_file is not None:
 if active_stats_csv_bytes is None:
     if db_ready and live_snapshot_id:
         try:
-            snapshot_data = get_full_snapshot(live_snapshot_id)
+            snapshot_data = cached_get_full_snapshot(live_snapshot_id)
             render_saved_snapshot_dashboard(snapshot_data, official_only=official_only)
         except Exception as exc:
             render_hero("SETUP NEEDED", "Supabase is configured, but the saved snapshot could not be loaded.")
@@ -1284,7 +1359,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
                     st.error(f"Could not save to Supabase: {exc}")
             st.markdown("### Saved Snapshots")
             try:
-                snapshots = list_snapshots(limit=20)
+                snapshots = cached_list_snapshots(limit=20)
                 st.dataframe(pd.DataFrame(snapshots), use_container_width=True, hide_index=True)
             except Exception as exc:
                 st.error(f"Could not load saved snapshots: {exc}")
