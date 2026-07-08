@@ -1,4 +1,4 @@
-# HCCL Rankings Dashboard v6.1 — How to Climb
+# HCCL Rankings Dashboard v6.2 — How to Climb
 
 This version keeps v6.0 Player DNA and adds a fast 🪜 How to Climb tab.
 
@@ -358,3 +358,10 @@ Then commit the updated image to GitHub and redeploy Streamlit.
 Adds a fast `🔥 Form Tracker` tab for both saved snapshots and update mode. It shows hot overall form, cold overall form, batting form leaders, and bowling form leaders. The feature reuses already-loaded rating details, so it does not add extra Supabase calls while viewing a saved snapshot.
 
 Current stable dashboard: v5.8.
+
+
+## New in v6.2 — Match Prediction
+
+The dashboard now includes a 🔮 Match Prediction tab. It compares two teams using already-loaded Team Power data: batting strength, bowling strength, all-round strength, and recent form.
+
+Speed note: this feature does not make extra Supabase calls while viewing saved rankings or calculated rankings.

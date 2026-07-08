@@ -37,7 +37,7 @@ from supabase_storage import (
     supabase_is_configured,
 )
 
-APP_VERSION = "v6.1"
+APP_VERSION = "v6.2"
 
 st.set_page_config(page_title="HCCL Official Rankings Dashboard", page_icon="🏏", layout="wide")
 
@@ -351,6 +351,34 @@ st.markdown(
     .climb-plan {margin-top:10px; padding:13px 14px; border-radius:16px; background:rgba(255,255,255,0.055); border:1px solid rgba(255,255,255,0.10); color:rgba(255,255,255,0.90); font-size:14px; line-height:1.55;}
 
 
+    .predict-card {
+      padding: 22px;
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 86% 12%, rgba(255,209,102,0.18), transparent 34%),
+        radial-gradient(circle at 8% 12%, rgba(99,164,255,0.16), transparent 30%),
+        linear-gradient(180deg, rgba(255,255,255,0.092), rgba(255,255,255,0.036));
+      border: 1px solid rgba(255,255,255,0.15);
+      box-shadow: 0 18px 46px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.08);
+      overflow: hidden;
+      position: relative;
+    }
+    .predict-title {font-size: 30px; font-weight: 950; color:#fff; line-height:1.05; margin-bottom:8px;}
+    .predict-sub {font-size:14px; color:rgba(255,255,255,0.72); font-weight:850; margin-bottom:14px;}
+    .predict-match {display:flex; align-items:center; justify-content:space-between; gap:18px; margin:16px 0;}
+    .predict-team {flex:1; padding:16px; border-radius:18px; background:rgba(255,255,255,0.055); border:1px solid rgba(255,255,255,0.10); text-align:center;}
+    .predict-team img {width:78px; height:78px; object-fit:contain; filter:drop-shadow(0 10px 18px rgba(0,0,0,0.44)); margin-bottom:8px;}
+    .predict-team-name {font-size:20px; font-weight:950; color:#fff; line-height:1.08;}
+    .predict-team-score {font-size:32px; font-weight:950; color:#ffd166; margin-top:5px;}
+    .predict-vs {font-size:26px; font-weight:950; color:rgba(255,255,255,0.70);}
+    .predict-chip {display:inline-block; padding:8px 12px; border-radius:999px; background:rgba(255,59,84,0.15); border:1px solid rgba(255,59,84,0.34); color:#ffd9de; font-weight:950; margin:4px 6px 8px 0;}
+    .predict-line {font-size:15px; color:rgba(255,255,255,0.88); margin:9px 0; line-height:1.45;}
+    .predict-edge-grid {display:grid; grid-template-columns: repeat(4, minmax(110px, 1fr)); gap:10px; margin:14px 0;}
+    .predict-edge {padding:12px; border-radius:16px; background: rgba(255,255,255,0.055); border:1px solid rgba(255,255,255,0.10);}
+    .predict-edge b {font-size:17px; color:#fff; display:block; margin-bottom:4px;}
+    .predict-edge span {font-size:12px; color:rgba(255,255,255,0.64); font-weight:850;}
+
+
     @media (max-width: 768px) {
       .hccl-hero {padding: 24px 20px; border-radius: 22px;}
       .hccl-title {font-size: 32px;}
@@ -366,6 +394,9 @@ st.markdown(
       .dna-title {font-size: 24px;}
       .climb-score-grid {grid-template-columns: 1fr;}
       .climb-title {font-size: 24px;}
+      .predict-match {flex-direction: column;}
+      .predict-edge-grid {grid-template-columns: 1fr;}
+      .predict-title {font-size: 24px;}
     }
     </style>
     """,
@@ -1681,6 +1712,172 @@ def render_how_to_climb(detail_rows: List[Dict[str, Any]], batting_rows: List[Di
         st.dataframe(quick, use_container_width=True, hide_index=True, key=f"{key_prefix}_climb_summary")
 
 
+
+# -----------------------------
+# Match Prediction helpers — fast, using already-loaded team power rows.
+# -----------------------------
+
+def _predict_team_label(row: Dict[str, Any]) -> str:
+    return str(row.get("Team") or row.get("team") or "—")
+
+
+def _predict_num(row: Dict[str, Any], *keys: str) -> float:
+    for key in keys:
+        if key in row and row.get(key) not in (None, ""):
+            return _num(row.get(key), 0)
+    return 0.0
+
+
+def _predict_winner_label(team_a: str, team_b: str, score_a: float, score_b: float) -> str:
+    gap = abs(score_a - score_b)
+    if gap < 1.5:
+        return "🤝 Too close to call"
+    return f"🏆 {team_a}" if score_a > score_b else f"🏆 {team_b}"
+
+
+def _predict_confidence(gap: float) -> str:
+    if gap < 1.5:
+        return "50/50 thriller"
+    if gap < 4:
+        return "Slight edge"
+    if gap < 8:
+        return "Good advantage"
+    return "Strong favorite"
+
+
+def _predict_edge_label(team_a: str, team_b: str, value_a: float, value_b: float) -> str:
+    if abs(value_a - value_b) < 0.6:
+        return "Even"
+    return team_a if value_a > value_b else team_b
+
+
+def build_match_prediction(row_a: Dict[str, Any], row_b: Dict[str, Any]) -> Dict[str, Any]:
+    team_a = _predict_team_label(row_a)
+    team_b = _predict_team_label(row_b)
+    power_a = _predict_num(row_a, "Power Score", "power")
+    power_b = _predict_num(row_b, "Power Score", "power")
+    gap = abs(power_a - power_b)
+    bat_a, bat_b = _predict_num(row_a, "Batting Strength", "bat"), _predict_num(row_b, "Batting Strength", "bat")
+    bowl_a, bowl_b = _predict_num(row_a, "Bowling Strength", "bowl"), _predict_num(row_b, "Bowling Strength", "bowl")
+    ar_a, ar_b = _predict_num(row_a, "All-Round Strength", "ar"), _predict_num(row_b, "All-Round Strength", "ar")
+    form_a, form_b = _predict_num(row_a, "Form Strength", "form"), _predict_num(row_b, "Form Strength", "form")
+
+    edge_map = {
+        "🏏 Batting Edge": _predict_edge_label(team_a, team_b, bat_a, bat_b),
+        "🎯 Bowling Edge": _predict_edge_label(team_a, team_b, bowl_a, bowl_b),
+        "👑 All-Round Edge": _predict_edge_label(team_a, team_b, ar_a, ar_b),
+        "🔥 Form Edge": _predict_edge_label(team_a, team_b, form_a, form_b),
+    }
+    edge_counts = {team_a: 0, team_b: 0, "Even": 0}
+    for winner in edge_map.values():
+        edge_counts[winner] = edge_counts.get(winner, 0) + 1
+
+    if gap < 1.5:
+        match_read = "This looks like a proper 50/50 match. One big over or one collapse can decide it."
+    elif gap < 4:
+        match_read = "Small advantage only. The underdog can still flip this with early wickets or a strong start."
+    elif gap < 8:
+        match_read = "One team has a clear edge on paper, but recent form can still swing the match."
+    else:
+        match_read = "Strong favorite on paper. The other team needs an above-normal performance to upset them."
+
+    return {
+        "Team A": team_a,
+        "Team B": team_b,
+        "Power A": round(power_a, 1),
+        "Power B": round(power_b, 1),
+        "Gap": round(gap, 1),
+        "Prediction": _predict_winner_label(team_a, team_b, power_a, power_b),
+        "Confidence": _predict_confidence(gap),
+        "Edge Map": edge_map,
+        "Edge Counts": edge_counts,
+        "Match Read": match_read,
+        "Top Batter A": row_a.get("Top Batter") or row_a.get("top_batter") or "—",
+        "Top Batter B": row_b.get("Top Batter") or row_b.get("top_batter") or "—",
+        "Top Bowler A": row_a.get("Top Bowler") or row_a.get("top_bowler") or "—",
+        "Top Bowler B": row_b.get("Top Bowler") or row_b.get("top_bowler") or "—",
+        "Top AR A": row_a.get("Top All-Rounder") or row_a.get("top_ar") or "—",
+        "Top AR B": row_b.get("Top All-Rounder") or row_b.get("top_ar") or "—",
+        "Form Player A": row_a.get("Best Form Player") or row_a.get("form_player") or "—",
+        "Form Player B": row_b.get("Best Form Player") or row_b.get("form_player") or "—",
+        "Bat A": round(bat_a, 1), "Bat B": round(bat_b, 1),
+        "Bowl A": round(bowl_a, 1), "Bowl B": round(bowl_b, 1),
+        "AR A": round(ar_a, 1), "AR B": round(ar_b, 1),
+        "Form A": round(form_a, 1), "Form B": round(form_b, 1),
+    }
+
+
+def render_match_prediction(power_rows: List[Dict[str, Any]], key_prefix: str) -> None:
+    st.markdown("<div class='section-title'>🔮 Match Prediction</div>", unsafe_allow_html=True)
+    st.caption("Fast matchup preview using already-loaded Team Power data. No extra Supabase calls.")
+    if len(power_rows) < 2:
+        st.info("Need at least two teams in Team Power Rankings before prediction can be shown.")
+        return
+
+    teams = [_predict_team_label(r) for r in power_rows]
+    row_by_team = {team_key(_predict_team_label(r)): r for r in power_rows}
+    a, b = st.columns(2)
+    team_a = a.selectbox("Team A", teams, index=0, key=f"{key_prefix}_predict_a")
+    default_b = 1 if len(teams) > 1 else 0
+    team_b = b.selectbox("Team B", teams, index=default_b, key=f"{key_prefix}_predict_b")
+    if team_key(team_a) == team_key(team_b):
+        st.warning("Select two different teams.")
+        return
+
+    row_a = row_by_team.get(team_key(team_a))
+    row_b = row_by_team.get(team_key(team_b))
+    if not row_a or not row_b:
+        st.info("Selected team data was not found.")
+        return
+
+    pred = build_match_prediction(row_a, row_b)
+    edges = pred["Edge Map"]
+    st.markdown(
+        f"""
+        <div class="predict-card">
+          <div class="predict-title">🔮 HCCL Matchup Preview</div>
+          <div class="predict-sub">Power-based prediction using batting, bowling, all-round strength and recent form.</div>
+          <div class="predict-match">
+            <div class="predict-team">
+              {team_logo_img_html(pred['Team A'], 'predict-logo')}
+              <div class="predict-team-name">{esc(pred['Team A'])}</div>
+              <div class="predict-team-score">{esc(pred['Power A'])}</div>
+              <div class="power-score-label">Power Score</div>
+            </div>
+            <div class="predict-vs">VS</div>
+            <div class="predict-team">
+              {team_logo_img_html(pred['Team B'], 'predict-logo')}
+              <div class="predict-team-name">{esc(pred['Team B'])}</div>
+              <div class="predict-team-score">{esc(pred['Power B'])}</div>
+              <div class="power-score-label">Power Score</div>
+            </div>
+          </div>
+          <div class="predict-chip">{esc(pred['Prediction'])}</div>
+          <div class="predict-chip">{esc(pred['Confidence'])}</div>
+          <div class="predict-line"><b>📏 Gap:</b> {esc(pred['Gap'])} power points</div>
+          <div class="predict-line"><b>🧠 Match read:</b> {esc(pred['Match Read'])}</div>
+          <div class="predict-edge-grid">
+            <div class="predict-edge"><b>{esc(edges['🏏 Batting Edge'])}</b><span>🏏 Batting Edge</span></div>
+            <div class="predict-edge"><b>{esc(edges['🎯 Bowling Edge'])}</b><span>🎯 Bowling Edge</span></div>
+            <div class="predict-edge"><b>{esc(edges['👑 All-Round Edge'])}</b><span>👑 All-Round Edge</span></div>
+            <div class="predict-edge"><b>{esc(edges['🔥 Form Edge'])}</b><span>🔥 Form Edge</span></div>
+          </div>
+          <div class="predict-line"><b>⚡ Key players:</b> {esc(pred['Top AR A'])} / {esc(pred['Top AR B'])}</div>
+          <div class="predict-line"><b>🔥 Danger form players:</b> {esc(pred['Form Player A'])} / {esc(pred['Form Player B'])}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    edge_df = pd.DataFrame([
+        {"Area": "🏏 Batting", pred["Team A"]: pred["Bat A"], pred["Team B"]: pred["Bat B"], "Edge": edges["🏏 Batting Edge"]},
+        {"Area": "🎯 Bowling", pred["Team A"]: pred["Bowl A"], pred["Team B"]: pred["Bowl B"], "Edge": edges["🎯 Bowling Edge"]},
+        {"Area": "👑 All-Round", pred["Team A"]: pred["AR A"], pred["Team B"]: pred["AR B"], "Edge": edges["👑 All-Round Edge"]},
+        {"Area": "🔥 Form", pred["Team A"]: pred["Form A"], pred["Team B"]: pred["Form B"], "Edge": edges["🔥 Form Edge"]},
+    ])
+    with st.expander("Show prediction breakdown"):
+        st.dataframe(edge_df, use_container_width=True, hide_index=True, key=f"{key_prefix}_predict_breakdown")
+
 def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only: bool) -> None:
     snapshot = snapshot_data.get("snapshot") or {}
     rankings_raw = snapshot_data.get("rankings") or []
@@ -1741,7 +1938,7 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
     st.markdown("<div class='section-subtitle'>Power score uses batting, bowling, all-rounder strength and recent form.</div>", unsafe_allow_html=True)
     render_team_power_cards(power_rows, limit=4)
 
-    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker", "🎖️ Badges", "🧬 Player DNA", "🪜 How to Climb"])
+    tabs = st.tabs(["🏏 Batting", "🎯 Bowling", "👑 All-Rounder", "📈 Weekly Report", "🛡️ Team Rankings", "🔎 Player Details", "⚙️ Benchmarks", "💾 Saved Snapshots", "🏆 Team Power", "🔥 Form Tracker", "🎖️ Badges", "🧬 Player DNA", "🪜 How to Climb", "🔮 Match Prediction"])
     with tabs[0]:
         st.markdown("<div class='section-title'>HCCL Batting Rankings</div>", unsafe_allow_html=True)
         show_ranking_table(batting_rows, "saved_batting")
@@ -1809,6 +2006,9 @@ def render_saved_snapshot_dashboard(snapshot_data: Dict[str, Any], official_only
 
     with tabs[12]:
         render_how_to_climb(detail_rows, batting_rows, bowling_rows, ar_rows, "saved")
+
+    with tabs[13]:
+        render_match_prediction(power_rows, "saved")
 
     st.markdown("<div class='section-title'>⬇️ Downloads</div>", unsafe_allow_html=True)
     d1, d2, d3, d4 = st.columns(4)
@@ -2038,6 +2238,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         "🎖️ Badges",
         "🧬 Player DNA",
         "🪜 How to Climb",
+        "🔮 Match Prediction",
     ])
 
     with tabs[0]:
@@ -2263,6 +2464,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     with tabs[14]:
         render_how_to_climb(detail_rows, batting_rows, bowling_rows, ar_rows, "active")
+
+    with tabs[15]:
+        render_match_prediction(power_rows, "active")
 
     rankings_output = tmpdir_path / "HCCL_Rankings_Updated.csv"
     details_output = tmpdir_path / "HCCL_Rating_Details.csv"
